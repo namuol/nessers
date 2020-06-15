@@ -24,15 +24,15 @@ pub struct Processor {
   /// Processor Status
   pub status: u8,
   /// Accumulator
-  pub acc: u8,
+  pub a: u8,
   /// X Register
   pub x: u8,
   /// Y Register
   pub y: u8,
+  /// Stack Pointer
+  pub s: u8,
   /// Program Counter
   pub pc: u16,
-  /// Stack Pointer
-  pub sp: u8,
 
   /// The numbers of cycles remaining for the current operation
   cycles_left: u8,
@@ -49,11 +49,11 @@ impl Processor {
     Processor {
       bus,
       status: 0,
-      acc: 0,
+      a: 0,
       x: 0,
       y: 0,
       pc: 0,
-      sp: 0,
+      s: 0,
       cycles_left: 0,
     }
   }
@@ -94,7 +94,7 @@ impl Processor {
       let address_mode_result = (operation.addressing_mode)(self);
       let instruction_result = (operation.instruction)(self, &address_mode_result.data);
 
-      if address_mode_result.needs_extra_cycle && instruction_result.needs_extra_cycle {
+      if address_mode_result.needs_extra_cycle && instruction_result.may_need_extra_cycle {
         self.cycles_left += 1;
       }
     }
@@ -103,10 +103,10 @@ impl Processor {
   }
 
   pub fn sig_reset(&mut self) {
-    self.acc = 0x00;
+    self.a = 0x00;
     self.x = 0x00;
     self.y = 0x00;
-    self.sp = STACK_SIZE;
+    self.s = STACK_SIZE;
     self.status = 0x00 | (StatusFlag::Unused as u8);
     self.pc = self.bus.read16(PC_INIT_ADDR);
 
@@ -125,6 +125,12 @@ impl Processor {
   }
 }
 
+struct Operation {
+  pub addressing_mode: AddressingMode,
+  pub instruction: Instruction,
+  pub cycles: u8,
+}
+
 enum DataSourceKind {
   Accumulator,
   AbsoluteAddress,
@@ -140,8 +146,16 @@ struct DataSource {
 impl DataSource {
   pub fn read(&self, cpu: &Processor) -> u8 {
     match self.kind {
-      Accumulator => cpu.acc,
+      Accumulator => cpu.a,
       AbsoluteAddress => cpu.bus.read(self.addr),
+      RelativeAddress => todo!(),
+    }
+  }
+
+  pub fn write(&self, cpu: &mut Processor, data: u8) {
+    match self.kind {
+      Accumulator => cpu.a = data,
+      AbsoluteAddress => cpu.bus.write(self.addr, data),
       RelativeAddress => todo!(),
     }
   }
@@ -159,35 +173,196 @@ struct AddressingModeResult {
 type AddressingMode = fn(&mut Processor) -> AddressingModeResult;
 
 struct InstructionResult {
-  needs_extra_cycle: bool,
+  may_need_extra_cycle: bool,
 }
 type Instruction = fn(&mut Processor, &DataSource) -> InstructionResult;
 
+// INSTRUCTIONS ///////////////////////////////////////////////////////////////
+
+// LOGICAL INSTRUCTIONS
+
+/// AND
 fn and(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  cpu.acc = cpu.acc & data.read(cpu);
-  cpu.set_status(Zero, cpu.acc == 0x00);
-  cpu.set_status(Negative, cpu.acc & 0x80 != 0x00);
+  cpu.a = cpu.a & data.read(cpu);
+  cpu.set_status(Zero, cpu.a == 0x00);
+  cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
 
   InstructionResult {
-    needs_extra_cycle: true,
+    may_need_extra_cycle: true,
   }
 }
 
+/// Exclusive OR
+fn eor(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.a = cpu.a ^ data.read(cpu);
+  cpu.set_status(Zero, cpu.a == 0x00);
+  cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: true,
+  }
+}
+
+/// Inclusive OR
 fn ora(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  cpu.acc = cpu.acc | data.read(cpu);
-  cpu.set_status(Zero, cpu.acc == 0x00);
-  cpu.set_status(Negative, cpu.acc & 0x80 != 0x00);
+  cpu.a = cpu.a | data.read(cpu);
+  cpu.set_status(Zero, cpu.a == 0x00);
+  cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
 
   InstructionResult {
-    needs_extra_cycle: true,
+    may_need_extra_cycle: true,
   }
 }
 
-struct Operation {
-  pub addressing_mode: AddressingMode,
-  pub instruction: Instruction,
-  pub cycles: u8,
+/// Bit Test
+fn bit(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu);
+  let result = cpu.a & m;
+  cpu.set_status(Zero, cpu.a == 0x00);
+
+  // Bit 6 from memory value is copied to overflow flag (why?):
+  cpu.set_status(Overflow, (0b_0100_0000 & m) != 0);
+
+  cpu.set_status(Negative, (0b_1000_0000 & m) != 0);
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
 }
+
+// LOAD/STORE OPERATIONS
+
+/// Load Accumulator
+fn lda(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu);
+  cpu.a = m;
+  cpu.set_status(Zero, m == 0);
+  cpu.set_status(Negative, (0b_1000_0000 & m) != 0);
+  InstructionResult {
+    may_need_extra_cycle: true,
+  }
+}
+
+/// Load X
+fn ldx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu);
+  cpu.x = m;
+  cpu.set_status(Zero, m == 0);
+  cpu.set_status(Negative, (0b_1000_0000 & m) != 0);
+  InstructionResult {
+    may_need_extra_cycle: true,
+  }
+}
+
+/// Load Y
+fn ldy(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu);
+  cpu.y = m;
+  cpu.set_status(Zero, m == 0);
+  cpu.set_status(Negative, (0b_1000_0000 & m) != 0);
+  InstructionResult {
+    may_need_extra_cycle: true,
+  }
+}
+
+/// Store Accumulator
+fn sta(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  data.write(cpu, cpu.a);
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Store X
+fn stx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  data.write(cpu, cpu.x);
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Store Y
+fn sty(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  data.write(cpu, cpu.y);
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+// Register Transfers
+
+/// Transfer Accumulator to X
+fn tax(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.x = cpu.a;
+
+  cpu.set_status(Zero, cpu.a == 0x00);
+  cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Transfer Accumulator to Y
+fn tay(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.y = cpu.a;
+
+  cpu.set_status(Zero, cpu.a == 0x00);
+  cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Transfer Stack Pointer to X
+fn tsx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.x = cpu.s;
+
+  cpu.set_status(Zero, cpu.s == 0x00);
+  cpu.set_status(Negative, cpu.s & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Transfer X to Accumulator
+fn txa(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.a = cpu.x;
+
+  cpu.set_status(Zero, cpu.x == 0x00);
+  cpu.set_status(Negative, cpu.x & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Transfer X to Stack Pointer
+fn txs(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.s = cpu.x;
+
+  cpu.set_status(Zero, cpu.x == 0x00);
+  cpu.set_status(Negative, cpu.x & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Transfer Y to Accumulator
+fn tya(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.a = cpu.y;
+
+  cpu.set_status(Zero, cpu.y == 0x00);
+  cpu.set_status(Negative, cpu.y & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+// ADDRESSING MODES ///////////////////////////////////////////////////////////
 
 /// Implied addressing
 ///
@@ -329,7 +504,7 @@ fn imm(cpu: &mut Processor) -> AddressingModeResult {
 
 fn noop(_: &mut Processor, _: &DataSource) -> InstructionResult {
   InstructionResult {
-    needs_extra_cycle: false,
+    may_need_extra_cycle: false,
   }
 }
 
@@ -435,14 +610,14 @@ mod tests {
     cpu.sig_reset();
     cpu.step();
 
-    cpu.acc = 0x01;
-    assert_eq!(cpu.acc, 0x01);
+    cpu.a = 0x01;
+    assert_eq!(cpu.a, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
 
     cpu.step();
 
     // Our accumulator should be 0 now:
-    assert_eq!(cpu.acc, 0x00);
+    assert_eq!(cpu.a, 0x00);
     assert_eq!(cpu.get_status(Zero), Zero as u8);
   }
 
@@ -460,14 +635,14 @@ mod tests {
     cpu.sig_reset();
     cpu.step();
 
-    cpu.acc = 0x01;
-    assert_eq!(cpu.acc, 0x01);
+    cpu.a = 0x01;
+    assert_eq!(cpu.a, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
 
     cpu.step();
 
     // Our accumulator should be 3 now:
-    assert_eq!(cpu.acc, 0x03);
+    assert_eq!(cpu.a, 0x03);
     assert_eq!(cpu.get_status(Zero), 0x00);
   }
 }
