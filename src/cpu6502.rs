@@ -38,11 +38,8 @@ pub struct Processor {
   cycles_left: u8,
 }
 
-/// Where the stack pointer "starts" - it grows _backwards_ from this address
-/// all the way to 0x00. These are technically proper pointers in memory, but
-/// since they are all in the zeroth page, we only need 8 bits to represent the
-/// full range.
-const SP_START: u8 = 0xFD;
+const STACK_START: u16 = 0x0100;
+const STACK_SIZE: u8 = 0xFF;
 
 /// An address that should contain a pointer to the start of our program
 const PC_INIT_ADDR: u16 = 0xFFFC;
@@ -75,9 +72,9 @@ impl Processor {
     }
   }
 
-  pub fn run(&mut self) {
+  pub fn step(&mut self) {
     loop {
-      self.clock();
+      self.sig_clock();
       if self.cycles_left == 0 {
         return;
       }
@@ -85,7 +82,7 @@ impl Processor {
   }
 
   // SIGNALS:
-  pub fn clock(&mut self) {
+  pub fn sig_clock(&mut self) {
     if self.cycles_left == 0 {
       let opcode = self.bus.read(self.pc);
       self.pc += 1;
@@ -105,24 +102,25 @@ impl Processor {
     self.cycles_left -= 1;
   }
 
-  pub fn reset(&mut self) {
+  pub fn sig_reset(&mut self) {
     self.acc = 0x00;
     self.x = 0x00;
     self.y = 0x00;
-    self.sp = SP_START;
+    self.sp = STACK_SIZE;
     self.status = 0x00 | (StatusFlag::Unused as u8);
     self.pc = self.bus.read16(PC_INIT_ADDR);
 
     self.cycles_left = 8;
   }
 
-  pub fn interrupt_request(&mut self) {
+  pub fn sig_interrupt_request(&mut self) {
     if self.get_status(StatusFlag::DisableInterrupts) != 0x00 {
+      self.sig_non_maskable_interrupt_request();
       return;
     }
   }
 
-  pub fn non_maskable_interrupt_request(&mut self) {
+  pub fn sig_non_maskable_interrupt_request(&mut self) {
     todo!();
   }
 }
@@ -427,23 +425,22 @@ mod tests {
   #[test]
   fn simple_and() {
     let mut ram = Ram::new();
-    let program_start = SP_START + 1;
+    let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
 
-    ram.buf[PC_INIT_ADDR as usize] = program_start;
-    ram.buf[PC_INIT_ADDR as usize + 1] = 0x00;
+    ram.write16(PC_INIT_ADDR, program_start);
 
     ram.buf[program_start as usize] = 0x69; // AND - Immediate
     ram.buf[program_start as usize + 1] = 0x02; //   2
 
     let mut cpu = Processor::new(Box::new(ram));
-    cpu.reset();
-    cpu.run();
+    cpu.sig_reset();
+    cpu.step();
 
     cpu.acc = 0x01;
     assert_eq!(cpu.acc, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
 
-    cpu.run();
+    cpu.step();
 
     // Our accumulator should be 0 now:
     assert_eq!(cpu.acc, 0x00);
@@ -453,23 +450,22 @@ mod tests {
   #[test]
   fn simple_ora() {
     let mut ram = Ram::new();
-    let program_start = SP_START + 1;
+    let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
 
-    ram.buf[PC_INIT_ADDR as usize] = program_start;
-    ram.buf[PC_INIT_ADDR as usize + 1] = 0x00;
+    ram.write16(PC_INIT_ADDR, program_start);
 
     ram.buf[program_start as usize] = 0x09; // ORA - Immediate
     ram.buf[program_start as usize + 1] = 0x02; //   2
 
     let mut cpu = Processor::new(Box::new(ram));
-    cpu.reset();
-    cpu.run();
+    cpu.sig_reset();
+    cpu.step();
 
     cpu.acc = 0x01;
     assert_eq!(cpu.acc, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
 
-    cpu.run();
+    cpu.step();
 
     // Our accumulator should be 3 now:
     assert_eq!(cpu.acc, 0x03);
