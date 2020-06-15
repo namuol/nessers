@@ -44,7 +44,7 @@ impl Game for CPUDebugger {
             debugger_ui.cpu.bus.write(program_start, 0x09); // ORA - Immediate
             debugger_ui.cpu.bus.write(program_start + 1, 0x02); //   2
             debugger_ui.cpu.sig_reset();
-            debugger_ui.cpu.acc = 0x01;
+            debugger_ui.cpu.a = 0x01;
             debugger_ui.cpu.step();
 
             debugger_ui
@@ -181,7 +181,7 @@ impl UserInterface for CPUDebugger {
                     )),
             )
             .push(Text::new(&format!("PC: {:04X} -", self.cpu.pc)).size(32))
-            .push(Text::new(&format!(" A: {:02X} ({})", self.cpu.acc, self.cpu.acc)).size(32))
+            .push(Text::new(&format!(" A: {:02X} ({})", self.cpu.a, self.cpu.a)).size(32))
             .push(Text::new(&format!(" X: {:02X} ({})", self.cpu.x, self.cpu.x)).size(32))
             .push(Text::new(&format!(" Y: {:02X} ({})", self.cpu.y, self.cpu.y)).size(32));
 
