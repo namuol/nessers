@@ -3,7 +3,7 @@ use crate::bus::Bus;
 const RAM_SIZE: usize = 64 * 1024;
 
 pub struct Ram {
-  buf: [u8; RAM_SIZE],
+  pub buf: [u8; RAM_SIZE],
 }
 
 impl Ram {

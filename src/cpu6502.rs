@@ -66,6 +66,15 @@ impl Processor {
     }
   }
 
+  pub fn run(&mut self) {
+    loop {
+      self.clock();
+      if self.cycles_left == 0 {
+        return;
+      }
+    }
+  }
+
   // SIGNALS:
   pub fn clock(&mut self) {
     if self.cycles_left == 0 {
@@ -73,6 +82,8 @@ impl Processor {
       self.pc += 1;
 
       let operation: Operation = opcode.into();
+
+      self.cycles_left = operation.cycles;
 
       let address_mode_result = (operation.addressing_mode)(self);
       let instruction_result = (operation.instruction)(self, &address_mode_result.data);
@@ -146,9 +157,20 @@ fn and(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
   }
 }
 
+fn ora(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.acc = cpu.acc | data.read(cpu);
+  cpu.set_status(Zero, cpu.acc == 0x00);
+  cpu.set_status(Negative, cpu.acc & 0x80 != 0x00);
+
+  InstructionResult {
+    needs_extra_cycle: true,
+  }
+}
+
 struct Operation {
   pub addressing_mode: AddressingMode,
   pub instruction: Instruction,
+  pub cycles: u8,
 }
 
 /// Implied addressing
@@ -290,16 +312,34 @@ fn imm(cpu: &mut Processor) -> AddressingModeResult {
 // }
 
 fn noop(_: &mut Processor, _: &DataSource) -> InstructionResult {
-  todo!()
+  InstructionResult {
+    needs_extra_cycle: false,
+  }
 }
 
 const ILLEGAL_OPERATION: Operation = Operation {
   addressing_mode: imp,
   instruction: noop,
+  cycles: 1,
 };
 
 impl From<u8> for Operation {
   fn from(opcode: u8) -> Self {
+    if opcode == 0x69 {
+      return Operation {
+        instruction: and,
+        addressing_mode: imm,
+        cycles: 2,
+      };
+    }
+
+    if opcode == 0x09 {
+      return Operation {
+        instruction: ora,
+        addressing_mode: imm,
+        cycles: 2,
+      };
+    }
     ILLEGAL_OPERATION
   }
 }
@@ -307,6 +347,8 @@ impl From<u8> for Operation {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::ram::Ram;
+
   const ALL_FLAGS: [StatusFlag; 8] = [
     Carry,
     Zero,
@@ -362,5 +404,39 @@ mod tests {
       cpu.set_status(flag, false);
       assert_eq!(cpu.get_status(flag), 0b0000);
     }
+  }
+
+  #[test]
+  fn simple_and() {
+    let mut ram = Ram::new();
+    ram.buf[0] = 0x69; // AND - Immediate
+    ram.buf[1] = 0x02; //   2
+    let mut cpu = Processor::new(Box::new(ram));
+    cpu.acc = 0x01;
+    assert_eq!(cpu.acc, 0x01);
+    assert_eq!(cpu.get_status(Zero), 0x00);
+
+    cpu.run();
+
+    // Our accumulator should be 0 now:
+    assert_eq!(cpu.acc, 0x00);
+    assert_eq!(cpu.get_status(Zero), Zero as u8);
+  }
+
+  #[test]
+  fn simple_ora() {
+    let mut ram = Ram::new();
+    ram.buf[0] = 0x09; // ORA - Immediate
+    ram.buf[1] = 0x02; //   2
+    let mut cpu = Processor::new(Box::new(ram));
+    cpu.acc = 0x01;
+    assert_eq!(cpu.acc, 0x01);
+    assert_eq!(cpu.get_status(Zero), 0x00);
+
+    cpu.run();
+
+    // Our accumulator should be 3 now:
+    assert_eq!(cpu.acc, 0x03);
+    assert_eq!(cpu.get_status(Zero), 0x00);
   }
 }
