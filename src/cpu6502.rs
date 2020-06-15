@@ -81,6 +81,17 @@ impl Processor {
     }
   }
 
+  fn push(&mut self, data: u8) {
+    self.bus.write(STACK_START + (self.s as u16), data);
+    self.s -= 1;
+  }
+
+  fn pull(&mut self) -> u8 {
+    let data = self.bus.read(STACK_START + (self.s as u16));
+    self.s += 1;
+    data
+  }
+
   // SIGNALS:
   pub fn sig_clock(&mut self) {
     if self.cycles_left == 0 {
@@ -314,33 +325,9 @@ fn tay(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
   }
 }
 
-/// Transfer Stack Pointer to X
-fn tsx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  cpu.x = cpu.s;
-
-  cpu.set_status(Zero, cpu.s == 0x00);
-  cpu.set_status(Negative, cpu.s & 0b_1000_0000 != 0);
-
-  InstructionResult {
-    may_need_extra_cycle: false,
-  }
-}
-
 /// Transfer X to Accumulator
 fn txa(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
   cpu.a = cpu.x;
-
-  cpu.set_status(Zero, cpu.x == 0x00);
-  cpu.set_status(Negative, cpu.x & 0b_1000_0000 != 0);
-
-  InstructionResult {
-    may_need_extra_cycle: false,
-  }
-}
-
-/// Transfer X to Stack Pointer
-fn txs(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  cpu.s = cpu.x;
 
   cpu.set_status(Zero, cpu.x == 0x00);
   cpu.set_status(Negative, cpu.x & 0b_1000_0000 != 0);
@@ -356,6 +343,68 @@ fn tya(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 
   cpu.set_status(Zero, cpu.y == 0x00);
   cpu.set_status(Negative, cpu.y & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Stack Operations
+
+/// Transfer Stack Pointer to X
+fn tsx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.x = cpu.s;
+
+  cpu.set_status(Zero, cpu.s == 0x00);
+  cpu.set_status(Negative, cpu.s & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Transfer X to Stack Pointer
+fn txs(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.s = cpu.x;
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Push Accumulator
+fn pha(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.push(cpu.a);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Push Processor Status
+fn php(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.push(cpu.status);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Pull Accumulator
+fn pla(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.a = cpu.pull();
+
+  cpu.set_status(Zero, cpu.a == 0x00);
+  cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Pull Processor Status
+fn plp(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.status = cpu.pull();
 
   InstructionResult {
     may_need_extra_cycle: false,
