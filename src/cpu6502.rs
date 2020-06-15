@@ -38,6 +38,15 @@ pub struct Processor {
   cycles_left: u8,
 }
 
+/// Where the stack pointer "starts" - it grows _backwards_ from this address
+/// all the way to 0x00. These are technically proper pointers in memory, but
+/// since they are all in the zeroth page, we only need 8 bits to represent the
+/// full range.
+const SP_START: u8 = 0xFD;
+
+/// An address that should contain a pointer to the start of our program
+const PC_INIT_ADDR: u16 = 0xFFFC;
+
 impl Processor {
   pub fn new(bus: Box<dyn Bus>) -> Processor {
     Processor {
@@ -97,11 +106,20 @@ impl Processor {
   }
 
   pub fn reset(&mut self) {
-    todo!();
+    self.acc = 0x00;
+    self.x = 0x00;
+    self.y = 0x00;
+    self.sp = SP_START;
+    self.status = 0x00 | (StatusFlag::Unused as u8);
+    self.pc = self.bus.read16(PC_INIT_ADDR);
+
+    self.cycles_left = 8;
   }
 
   pub fn interrupt_request(&mut self) {
-    todo!();
+    if self.get_status(StatusFlag::DisableInterrupts) != 0x00 {
+      return;
+    }
   }
 
   pub fn non_maskable_interrupt_request(&mut self) {
@@ -409,9 +427,18 @@ mod tests {
   #[test]
   fn simple_and() {
     let mut ram = Ram::new();
-    ram.buf[0] = 0x69; // AND - Immediate
-    ram.buf[1] = 0x02; //   2
+    let program_start = SP_START + 1;
+
+    ram.buf[PC_INIT_ADDR as usize] = program_start;
+    ram.buf[PC_INIT_ADDR as usize + 1] = 0x00;
+
+    ram.buf[program_start as usize] = 0x69; // AND - Immediate
+    ram.buf[program_start as usize + 1] = 0x02; //   2
+
     let mut cpu = Processor::new(Box::new(ram));
+    cpu.reset();
+    cpu.run();
+
     cpu.acc = 0x01;
     assert_eq!(cpu.acc, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
@@ -426,9 +453,18 @@ mod tests {
   #[test]
   fn simple_ora() {
     let mut ram = Ram::new();
-    ram.buf[0] = 0x09; // ORA - Immediate
-    ram.buf[1] = 0x02; //   2
+    let program_start = SP_START + 1;
+
+    ram.buf[PC_INIT_ADDR as usize] = program_start;
+    ram.buf[PC_INIT_ADDR as usize + 1] = 0x00;
+
+    ram.buf[program_start as usize] = 0x09; // ORA - Immediate
+    ram.buf[program_start as usize + 1] = 0x02; //   2
+
     let mut cpu = Processor::new(Box::new(ram));
+    cpu.reset();
+    cpu.run();
+
     cpu.acc = 0x01;
     assert_eq!(cpu.acc, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
