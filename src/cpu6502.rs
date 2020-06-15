@@ -38,11 +38,11 @@ pub struct Processor {
   cycles_left: u8,
 }
 
-const STACK_START: u16 = 0x0100;
-const STACK_SIZE: u8 = 0xFF;
+pub const STACK_START: u16 = 0x0100;
+pub const STACK_SIZE: u8 = 0xFF;
 
 /// An address that should contain a pointer to the start of our program
-const PC_INIT_ADDR: u16 = 0xFFFC;
+pub const PC_INIT_ADDR: u16 = 0xFFFC;
 
 impl Processor {
   pub fn new(bus: Box<dyn Bus>) -> Processor {
@@ -424,15 +424,14 @@ mod tests {
 
   #[test]
   fn simple_and() {
-    let mut ram = Ram::new();
+    let mut cpu = Processor::new(Box::new(Ram::new()));
     let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
 
-    ram.write16(PC_INIT_ADDR, program_start);
+    cpu.bus.write16(PC_INIT_ADDR, program_start);
 
-    ram.buf[program_start as usize] = 0x69; // AND - Immediate
-    ram.buf[program_start as usize + 1] = 0x02; //   2
+    cpu.bus.write(program_start, 0x69); // AND - Immediate
+    cpu.bus.write(program_start + 1, 0x02); //   2
 
-    let mut cpu = Processor::new(Box::new(ram));
     cpu.sig_reset();
     cpu.step();
 
