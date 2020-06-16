@@ -838,6 +838,12 @@ lazy_static! {
         instruction: sbc,
         addressing_mode: imm,
         cycles: 2,
+      },
+
+      0x49 => Operation {
+        instruction: eor,
+        addressing_mode: imm,
+        cycles: 2,
       }
   };
 }
@@ -959,6 +965,42 @@ mod tests {
 
     // Our accumulator should be 3 now:
     assert_eq!(cpu.a, 0x03);
+    assert_eq!(cpu.get_status(Zero), 0x00);
+  }
+
+  #[test]
+  fn simple_eor() {
+    let mut ram = Ram::new();
+    let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
+
+    ram.write16(PC_INIT_ADDR, program_start);
+
+    ram.buf[program_start as usize + 0] = 0x49; // EOR - Immediate
+    ram.buf[program_start as usize + 1] = 0x02; //   2
+
+    ram.buf[program_start as usize + 2] = 0x49; // EOR - Immediate
+    ram.buf[program_start as usize + 3] = 0x02; //   2
+
+    let mut cpu = Processor::new(Box::new(ram));
+    cpu.sig_reset();
+    cpu.step();
+
+    cpu.a = 0x01;
+    assert_eq!(cpu.a, 0x01);
+    assert_eq!(cpu.get_status(Zero), 0x00);
+
+    cpu.step();
+
+    // Our accumulator should be 3 now:
+    assert_eq!(cpu.a, 0x03);
+    assert_eq!(cpu.get_status(Zero), 0x00);
+
+    cpu.step();
+
+    //  0b00000011
+    // ^0b00000010
+    // =0b00000001
+    assert_eq!(cpu.a, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
   }
 
