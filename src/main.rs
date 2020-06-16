@@ -1,3 +1,6 @@
+#[macro_use]
+extern crate maplit;
+
 use crate::cpu6502::PC_INIT_ADDR;
 use coffee::graphics::{Color, Frame, Window, WindowSettings};
 use coffee::input::{self, keyboard, Input};
@@ -41,8 +44,16 @@ impl Game for CPUDebugger {
             let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
 
             debugger_ui.cpu.bus.write16(PC_INIT_ADDR, program_start);
-            debugger_ui.cpu.bus.write(program_start, 0x09); // ORA - Immediate
-            debugger_ui.cpu.bus.write(program_start + 1, 0x02); //   2
+
+            #[rustfmt::skip]
+            let program: Vec<u8> = vec![
+                0x09, 0x02, // ORA 2
+            ];
+            let mut offset: u16 = 0;
+            for byte in program {
+                debugger_ui.cpu.bus.write(program_start + offset, byte);
+                offset += 1;
+            }
             debugger_ui.cpu.sig_reset();
             debugger_ui.cpu.a = 0x01;
             debugger_ui.cpu.step();

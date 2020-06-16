@@ -1,4 +1,6 @@
 use crate::bus::Bus;
+use lazy_static::lazy_static;
+use std::collections::HashMap;
 
 /// 6502 Processor Status bits
 ///
@@ -98,7 +100,7 @@ impl Processor {
       let opcode = self.bus.read(self.pc);
       self.pc += 1;
 
-      let operation: Operation = opcode.into();
+      let operation: &Operation = opcode.into();
 
       self.cycles_left = operation.cycles;
 
@@ -563,24 +565,28 @@ const ILLEGAL_OPERATION: Operation = Operation {
   cycles: 1,
 };
 
-impl From<u8> for Operation {
-  fn from(opcode: u8) -> Self {
-    if opcode == 0x69 {
-      return Operation {
+lazy_static! {
+  static ref OPCODE_MAP: HashMap<u8, Operation> = hashmap! {
+      0x69 => Operation {
         instruction: and,
         addressing_mode: imm,
         cycles: 2,
-      };
-    }
+      },
 
-    if opcode == 0x09 {
-      return Operation {
+      0x09 => Operation {
         instruction: ora,
         addressing_mode: imm,
         cycles: 2,
-      };
+      },
+  };
+}
+
+impl From<u8> for &Operation {
+  fn from(opcode: u8) -> Self {
+    match OPCODE_MAP.get(&opcode) {
+      Some(operation) => operation,
+      None => &ILLEGAL_OPERATION,
     }
-    ILLEGAL_OPERATION
   }
 }
 
