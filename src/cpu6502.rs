@@ -351,7 +351,7 @@ fn tya(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
   }
 }
 
-/// Stack Operations
+// Stack Operations
 
 /// Transfer Stack Pointer to X
 fn tsx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
@@ -408,6 +408,253 @@ fn pla(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 fn plp(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
   cpu.status = cpu.pull();
 
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+// Arithmetic
+
+/// Add with Carry
+fn adc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let a = cpu.a as u16;
+  let m = data.read(cpu) as u16;
+  let result = a + m + (cpu.get_status(Carry) as u16);
+  {
+    let overflow: u16 = (a ^ result) & !(a ^ m) & 0x0080;
+    cpu.set_status(Overflow, overflow != 0);
+  }
+  cpu.set_status(Carry, result > 0xFF);
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x80) != 0);
+  cpu.a = (result & 0x00FF) as u8;
+  InstructionResult {
+    may_need_extra_cycle: true,
+  }
+}
+
+/// Subtract with Carry
+fn sbc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let a = cpu.a as u16;
+  // This implementation is identical to ADC, except we invert the lower 8 bits
+  let m = (data.read(cpu) as u16) ^ 0x00FF;
+  let result = a + m + (cpu.get_status(Carry) as u16) + 1;
+  {
+    let overflow: u16 = (a ^ result) & !(a ^ m) & 0x0080;
+    cpu.set_status(Overflow, overflow != 0);
+  }
+  cpu.set_status(Carry, result > 0xFF);
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x80) != 0);
+  cpu.a = (result & 0x00FF) as u8;
+  InstructionResult {
+    may_need_extra_cycle: true,
+  }
+}
+
+/// Compare Accumulator
+fn cmp(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let a = cpu.a as u16;
+  let m = data.read(cpu) as u16;
+  let result = a - m;
+  cpu.set_status(Carry, a >= m);
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
+  InstructionResult {
+    may_need_extra_cycle: true,
+  }
+}
+
+/// Compare X
+fn cpx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let x = cpu.x as u16;
+  let m = data.read(cpu) as u16;
+  let result = x - m;
+  cpu.set_status(Carry, x >= m);
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
+  InstructionResult {
+    // Unlike CMP, we cannot use address modes that may require additional
+    // cycles:
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Compare Y
+fn cpy(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let y = cpu.y as u16;
+  let m = data.read(cpu) as u16;
+  let result = y - m;
+  cpu.set_status(Carry, y >= m);
+  cpu.set_status(Zero, y == m);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
+  InstructionResult {
+    // Unlike CMP, we cannot use address modes that may require additional
+    // cycles:
+    may_need_extra_cycle: false,
+  }
+}
+
+// Increments & Decrements
+
+/// Increment Memory
+fn inc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu) as u16;
+  let result = m + 1;
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
+  data.write(cpu, (result & 0x00FF) as u8);
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Increment X
+fn inx(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+  let result = (cpu.x as u16) + 1;
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
+  cpu.x = (result & 0x00FF) as u8;
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Increment Y
+fn iny(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+  let result = (cpu.y as u16) + 1;
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
+  cpu.y = (result & 0x00FF) as u8;
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Decrement Memory
+fn dec(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu) as u16;
+  let result = m - 1;
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
+  data.write(cpu, (result & 0x00FF) as u8);
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Decrement X
+fn dex(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+  let result = (cpu.x as u16) - 1;
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
+  cpu.x = (result & 0x00FF) as u8;
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Decrement Y
+fn dey(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+  let result = (cpu.y as u16) - 1;
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
+  cpu.y = (result & 0x00FF) as u8;
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+// Shifts
+
+/// Arithmetic Shift Left
+fn asl(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu);
+  let result = m << 1; // equivalent to m * 2
+
+  // We set the carry bit to the 7th bit from our data, since it was shifted
+  // "out" of the result:
+  cpu.set_status(Carry, m & 0x80 == 0x80);
+  data.write(cpu, result);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Logical Shift Right
+fn lsr(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu);
+  let result = m >> 1; // equivalent to m / 2
+
+  // We set the carry bit to the 0th bit from our data, since it was shifted
+  // "out" of the result:
+  cpu.set_status(Carry, m & 0x01 == 0x01);
+  data.write(cpu, result);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Rotate Left
+fn rol(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu);
+  let old_bit_7 = m >> 7;
+  let result = (m << 1) | old_bit_7;
+
+  cpu.set_status(Carry, old_bit_7 != 0);
+  data.write(cpu, result);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Rotate Right
+fn ror(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu);
+  let old_bit_0 = m & 0x01;
+  let result = (m >> 1) | (old_bit_0 << 7);
+
+  cpu.set_status(Carry, old_bit_0 != 0);
+  data.write(cpu, result);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Jumps & Calls
+
+/// Jump
+fn jmp(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  cpu.pc = data.addr;
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Jump to Subroutine
+fn jsr(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let return_addr = cpu.pc - 1;
+  let return_hi: u8 = (return_addr >> 8) as u8;
+  cpu.push(return_hi);
+  let return_lo: u8 = (return_addr << 8) as u8;
+  cpu.push(return_lo);
+
+  cpu.pc = data.addr;
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Return from Subroutine
+fn rts(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+  let return_lo = cpu.pull();
+  let return_hi = cpu.pull();
+  let return_addr = ((return_hi as u16) << 8) | return_lo as u16;
+  cpu.pc = return_addr;
   InstructionResult {
     may_need_extra_cycle: false,
   }
@@ -493,20 +740,22 @@ fn imm(cpu: &mut Processor) -> AddressingModeResult {
 //   }
 // }
 
-// /// Absolute addressing
-// ///
-// /// Read a full 16-bit address from the current program counter + 1
-// fn abs(cpu: &mut Processor) -> AddressingModeResult {
-//   let addr_lo = cpu.bus.read(cpu.pc) as u16;
-//   cpu.pc += 1;
-//   let addr_hi = cpu.bus.read(cpu.pc) as u16;
-//   cpu.pc += 1;
-//   AddressingModeResult {
-//     data: 0x00,
-//     addr_abs: ((addr_hi << 8) | addr_lo),
-//     needs_extra_cycle: false,
-//   }
-// }
+/// Absolute addressing
+///
+/// Read a full 16-bit address from the current program counter + 1
+fn abs(cpu: &mut Processor) -> AddressingModeResult {
+  let addr_lo = cpu.bus.read(cpu.pc) as u16;
+  cpu.pc += 1;
+  let addr_hi = cpu.bus.read(cpu.pc) as u16;
+  cpu.pc += 1;
+  AddressingModeResult {
+    data: DataSource {
+      kind: AbsoluteAddress,
+      addr: ((addr_hi << 8) | addr_lo),
+    },
+    needs_extra_cycle: false,
+  }
+}
 
 // /// Absolute addressing + X
 // ///
@@ -567,7 +816,7 @@ const ILLEGAL_OPERATION: Operation = Operation {
 
 lazy_static! {
   static ref OPCODE_MAP: HashMap<u8, Operation> = hashmap! {
-      0x69 => Operation {
+      0x29 => Operation {
         instruction: and,
         addressing_mode: imm,
         cycles: 2,
@@ -578,6 +827,18 @@ lazy_static! {
         addressing_mode: imm,
         cycles: 2,
       },
+
+      0x69 => Operation {
+        instruction: adc,
+        addressing_mode: imm,
+        cycles: 2,
+      },
+
+      0xE9 => Operation {
+        instruction: sbc,
+        addressing_mode: imm,
+        cycles: 2,
+      }
   };
 }
 
@@ -659,7 +920,7 @@ mod tests {
 
     cpu.bus.write16(PC_INIT_ADDR, program_start);
 
-    cpu.bus.write(program_start, 0x69); // AND - Immediate
+    cpu.bus.write(program_start, 0x29); // AND - Immediate
     cpu.bus.write(program_start + 1, 0x02); //   2
 
     cpu.sig_reset();
@@ -699,5 +960,261 @@ mod tests {
     // Our accumulator should be 3 now:
     assert_eq!(cpu.a, 0x03);
     assert_eq!(cpu.get_status(Zero), 0x00);
+  }
+
+  #[test]
+  fn adc_overflow() {
+    struct TestADC {
+      // inputs:
+      a: u8,
+      m: u8,
+      // expected outputs:
+      r: u8,
+      c: bool, // carry bit
+      v: bool, // overflow bit
+      z: bool, // zero bit
+      n: bool, // negative bit
+    }
+
+    // Tests derived from the table at the bottom of this article:
+    //
+    // http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+    let tests: Vec<TestADC> = vec![
+      TestADC {
+        a: 0x50,
+        m: 0x10,
+
+        r: 0x60,
+        c: false,
+        v: false,
+        z: false,
+        n: false,
+      },
+      TestADC {
+        a: 0x50,
+        m: 0x50,
+
+        r: 0xA0,
+        c: false,
+        v: true,
+        z: false,
+        n: true,
+      },
+      TestADC {
+        a: 0x50,
+        m: 0x90,
+
+        r: 0xE0,
+        c: false,
+        v: false,
+        z: false,
+        n: true,
+      },
+      TestADC {
+        a: 0x50,
+        m: 0xD0,
+
+        r: 0x20, // 0x20 + 0x100 (carry)
+        c: true,
+        v: false,
+        z: false,
+        n: false,
+      },
+      TestADC {
+        a: 0xD0,
+        m: 0x10,
+
+        r: 0xE0,
+        c: false,
+        v: false,
+        z: false,
+        n: true,
+      },
+      TestADC {
+        a: 0xD0,
+        m: 0x50,
+
+        r: 0x20, // 0x20 + 0x100 (carry)
+        c: true,
+        v: false,
+        z: false,
+        n: false,
+      },
+      TestADC {
+        a: 0xD0,
+        m: 0x90,
+
+        r: 0x60, // 0x60 + 0x100 (carry)
+        c: true,
+        v: true,
+        z: false,
+        n: false,
+      },
+      TestADC {
+        a: 0xD0,
+        m: 0xD0,
+
+        r: 0xA0, // 0xA0 + 0x100 (carry)
+        c: true,
+        v: false,
+        z: false,
+        n: true,
+      },
+    ];
+
+    for test in tests {
+      let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
+      let mut cpu = Processor::new(Box::new(Ram::new()));
+      cpu.bus.write16(PC_INIT_ADDR, program_start);
+      #[rustfmt::skip]
+      let program: Vec<u8> = vec![
+          0x69, test.m,
+      ];
+      let mut offset: u16 = 0;
+      for byte in program {
+        cpu.bus.write(program_start + offset, byte);
+        offset += 1;
+      }
+      cpu.sig_reset();
+      cpu.step();
+      cpu.a = test.a;
+      cpu.step();
+
+      // The result should be stored into cpu.a:
+      assert_eq!(cpu.a, test.r);
+
+      assert_eq!(cpu.get_status(Carry) != 0, test.c);
+      assert_eq!(cpu.get_status(Overflow) != 0, test.v);
+      assert_eq!(cpu.get_status(Zero) != 0, test.z);
+      assert_eq!(cpu.get_status(Negative) != 0, test.n);
+    }
+  }
+
+  #[test]
+  fn sbc_overflow() {
+    struct TestSBC {
+      // inputs:
+      a: u8,
+      m: u8,
+      // expected outputs:
+      r: u8,
+      c: bool, // carry bit
+      v: bool, // overflow bit
+      z: bool, // zero bit
+      n: bool, // negative bit
+    }
+
+    // Tests derived from the table at the bottom of this article:
+    //
+    // http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+    let tests: Vec<TestSBC> = vec![
+      TestSBC {
+        a: 0x50,
+        m: 0xF0,
+
+        r: 0x60,
+        c: false,
+        v: false,
+        z: false,
+        n: false,
+      },
+      TestSBC {
+        a: 0x50,
+        m: 0xB0,
+
+        r: 0xA0,
+        c: false,
+        v: true,
+        z: false,
+        n: true,
+      },
+      TestSBC {
+        a: 0x50,
+        m: 0x70,
+
+        r: 0xE0,
+        c: false,
+        v: false,
+        z: false,
+        n: true,
+      },
+      TestSBC {
+        a: 0x50,
+        m: 0x30,
+
+        r: 0x20, // 0x20 + 0x100 (carry)
+        c: true,
+        v: false,
+        z: false,
+        n: false,
+      },
+      TestSBC {
+        a: 0xD0,
+        m: 0xF0,
+
+        r: 0xE0,
+        c: false,
+        v: false,
+        z: false,
+        n: true,
+      },
+      TestSBC {
+        a: 0xD0,
+        m: 0xB0,
+
+        r: 0x20, // 0x20 + 0x100 (carry)
+        c: true,
+        v: false,
+        z: false,
+        n: false,
+      },
+      TestSBC {
+        a: 0xD0,
+        m: 0x70,
+
+        r: 0x60, // 0x60 + 0x100 (carry)
+        c: true,
+        v: true,
+        z: false,
+        n: false,
+      },
+      TestSBC {
+        a: 0xD0,
+        m: 0x30,
+
+        r: 0xA0, // 0xA0 + 0x100 (carry)
+        c: true,
+        v: false,
+        z: false,
+        n: true,
+      },
+    ];
+
+    for test in tests {
+      let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
+      let mut cpu = Processor::new(Box::new(Ram::new()));
+      cpu.bus.write16(PC_INIT_ADDR, program_start);
+      #[rustfmt::skip]
+      let program: Vec<u8> = vec![
+          0xE9, test.m,
+      ];
+      let mut offset: u16 = 0;
+      for byte in program {
+        cpu.bus.write(program_start + offset, byte);
+        offset += 1;
+      }
+      cpu.sig_reset();
+      cpu.step();
+      cpu.a = test.a;
+      cpu.step();
+
+      // The result should be stored into cpu.a:
+      assert_eq!(cpu.a, test.r);
+
+      assert_eq!(cpu.get_status(Carry) != 0, test.c);
+      assert_eq!(cpu.get_status(Overflow) != 0, test.v);
+      assert_eq!(cpu.get_status(Zero) != 0, test.z);
+      assert_eq!(cpu.get_status(Negative) != 0, test.n);
+    }
   }
 }
