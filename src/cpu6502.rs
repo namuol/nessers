@@ -46,6 +46,9 @@ pub const STACK_SIZE: u8 = 0xFF;
 /// An address that should contain a pointer to the start of our program
 pub const PC_INIT_ADDR: u16 = 0xFFFC;
 
+const IRQ_POINTER: u16 = 0xFFFE;
+const NMI_POINTER: u16 = 0xFFFA;
+
 impl Processor {
   pub fn new(bus: Box<dyn Bus>) -> Processor {
     Processor {
@@ -126,15 +129,35 @@ impl Processor {
     self.cycles_left = 8;
   }
 
-  pub fn sig_interrupt_request(&mut self) {
+  pub fn sig_irq(&mut self) {
     if self.get_status(StatusFlag::DisableInterrupts) != 0x00 {
-      self.sig_non_maskable_interrupt_request();
-      return;
+      let pc_hi: u8 = (self.pc >> 8) as u8;
+      self.push(pc_hi);
+      let pc_lo: u8 = (self.pc << 8) as u8;
+      self.push(pc_lo);
+      self.set_status(Break, false);
+      self.set_status(Unused, true);
+      self.set_status(DisableInterrupts, true);
+      self.push(self.status);
+      let irq_addr = self.bus.read16(IRQ_POINTER);
+      self.pc = irq_addr;
+      self.cycles_left = 7;
     }
   }
 
-  pub fn sig_non_maskable_interrupt_request(&mut self) {
-    todo!();
+  pub fn sig_nmi(&mut self) {
+    let pc_hi: u8 = (self.pc >> 8) as u8;
+    self.push(pc_hi);
+    let pc_lo: u8 = (self.pc << 8) as u8;
+    self.push(pc_lo);
+    self.set_status(Break, false);
+    self.set_status(Unused, true);
+    self.set_status(DisableInterrupts, true);
+    self.push(self.status);
+    let irq_addr = self.bus.read16(NMI_POINTER);
+    self.pc = irq_addr;
+
+    self.cycles_left = 8;
   }
 }
 
@@ -148,6 +171,7 @@ enum DataSourceKind {
   Accumulator,
   AbsoluteAddress,
   RelativeAddress,
+  Implicit,
 }
 use DataSourceKind::*;
 
@@ -161,7 +185,8 @@ impl DataSource {
     match self.kind {
       Accumulator => cpu.a,
       AbsoluteAddress => cpu.bus.read(self.addr),
-      RelativeAddress => todo!(),
+      RelativeAddress => cpu.bus.read(cpu.pc + self.addr),
+      Implicit => panic!("Cannot read from Implicit DataSource"),
     }
   }
 
@@ -169,7 +194,8 @@ impl DataSource {
     match self.kind {
       Accumulator => cpu.a = data,
       AbsoluteAddress => cpu.bus.write(self.addr, data),
-      RelativeAddress => todo!(),
+      RelativeAddress => cpu.bus.write(cpu.pc + self.addr, data),
+      Implicit => panic!("Cannot write to Implicit DataSource"),
     }
   }
 }
@@ -790,8 +816,6 @@ fn sei(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 
 // System Functions
 
-const IRQ_POINTER: u16 = 0xFFFE;
-
 /// Force an interrupt
 fn brk(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   let pc_hi: u8 = (cpu.pc >> 8) as u8;
@@ -842,7 +866,7 @@ fn nop(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 fn imp(_cpu: &mut Processor) -> AddressingModeResult {
   AddressingModeResult {
     data: DataSource {
-      kind: Accumulator,
+      kind: Implicit,
       addr: 0x0000,
     },
     needs_extra_cycle: false,
@@ -1014,23 +1038,75 @@ fn ind(cpu: &mut Processor) -> AddressingModeResult {
 }
 
 /// (Indirect, X)
-fn idx(cpu: &mut Processor) -> AddressingModeResult {
-  todo!();
+fn izx(cpu: &mut Processor) -> AddressingModeResult {
+  // Our pointer lives in the zeroth page, so we only need to read one byte
+  let ptr = cpu.bus.read(cpu.pc) as u16 & 0x00FF;
+  cpu.pc += 1;
+
+  // We read X offset from this pointer
+  let addr_abs = cpu.bus.read16(ptr + (cpu.x as u16) & 0x00FF);
+  AddressingModeResult {
+    data: DataSource {
+      kind: AbsoluteAddress,
+      addr: addr_abs,
+    },
+    needs_extra_cycle: false,
+  }
 }
 
 /// (Indirect), Y
 fn idy(cpu: &mut Processor) -> AddressingModeResult {
-  todo!();
+  // Our pointer lives in the zeroth page, so we only need to read one byte
+  let ptr = cpu.bus.read(cpu.pc) as u16 & 0x00FF;
+  cpu.pc += 1;
+
+  let addr_abs = cpu.bus.read16(ptr) + cpu.y as u16;
+
+  // We only read this here so we can check if we crossed a page:
+  let addr_hi = cpu.bus.read(ptr + 1) as u16 & 0x00FF;
+  // If our hi byte is changed after we've added Y, then it has changed due to
+  // overflow which means we are crossing a page. When we cross a page, we may
+  // need an extra cycle:
+  let needs_extra_cycle = addr_abs & 0xFF00 != (addr_hi << 8);
+
+  AddressingModeResult {
+    data: DataSource {
+      kind: AbsoluteAddress,
+      addr: addr_abs,
+    },
+    needs_extra_cycle,
+  }
 }
 
 /// Accumulator
 fn acc(cpu: &mut Processor) -> AddressingModeResult {
-  todo!();
+  AddressingModeResult {
+    data: DataSource {
+      kind: Accumulator,
+      addr: 0x0000,
+    },
+    needs_extra_cycle: false,
+  }
 }
 
 /// Relative
 fn rel(cpu: &mut Processor) -> AddressingModeResult {
-  todo!();
+  let mut offset = cpu.bus.read(cpu.pc) as u16 & 0x00FF;
+  cpu.pc += 1;
+
+  // This ensures the binary arithmatic works out when adding this relative
+  // address to our program counter.
+  if offset & 0x80 != 0 {
+    offset |= 0xFF00;
+  }
+
+  AddressingModeResult {
+    data: DataSource {
+      kind: RelativeAddress,
+      addr: offset,
+    },
+    needs_extra_cycle: false,
+  }
 }
 
 fn noop(_: &mut Processor, _: &DataSource) -> InstructionResult {
@@ -1136,7 +1212,7 @@ lazy_static! {
     },
     0x61 => Operation {
       instruction: adc,
-      addressing_mode: idx,
+      addressing_mode: izx,
       cycles: 6,
     },
     0x71 => Operation {
@@ -1176,7 +1252,7 @@ lazy_static! {
     },
     0x21 => Operation {
       instruction: and,
-      addressing_mode: idx,
+      addressing_mode: izx,
       cycles: 6,
     },
     0x31 => Operation {
@@ -1316,7 +1392,7 @@ lazy_static! {
     },
     0xC1 => Operation {
       instruction: cmp,
-      addressing_mode: idx,
+      addressing_mode: izx,
       cycles: 6,
     },
     0xD1 => Operation {
@@ -1416,7 +1492,7 @@ lazy_static! {
     },
     0x41 => Operation {
       instruction: eor,
-      addressing_mode: idx,
+      addressing_mode: izx,
       cycles: 6,
     },
     0x51 => Operation {
@@ -1501,7 +1577,7 @@ lazy_static! {
     },
     0xA1 => Operation {
       instruction: lda,
-      addressing_mode: idx,
+      addressing_mode: izx,
       cycles: 6,
     },
     0xB1 => Operation {
@@ -1621,7 +1697,7 @@ lazy_static! {
     },
     0x01 => Operation {
       instruction: ora,
-      addressing_mode: idx,
+      addressing_mode: izx,
       cycles: 6,
     },
     0x11 => Operation {
@@ -1741,7 +1817,7 @@ lazy_static! {
     },
     0xE1 => Operation {
       instruction: sbc,
-      addressing_mode: idx,
+      addressing_mode: izx,
       cycles: 6,
     },
     0xF1 => Operation {
@@ -1791,7 +1867,7 @@ lazy_static! {
     },
     0x81 => Operation {
       instruction: sta,
-      addressing_mode: idx,
+      addressing_mode: izx,
       cycles: 6,
     },
     0x91 => Operation {
