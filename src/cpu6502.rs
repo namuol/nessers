@@ -170,7 +170,6 @@ struct Operation {
 enum DataSourceKind {
   Accumulator,
   AbsoluteAddress,
-  RelativeAddress,
   Implicit,
 }
 use DataSourceKind::*;
@@ -185,7 +184,6 @@ impl DataSource {
     match self.kind {
       Accumulator => cpu.a,
       AbsoluteAddress => cpu.bus.read(self.addr),
-      RelativeAddress => cpu.bus.read(cpu.pc + self.addr),
       Implicit => panic!("Cannot read from Implicit DataSource"),
     }
   }
@@ -194,7 +192,6 @@ impl DataSource {
     match self.kind {
       Accumulator => cpu.a = data,
       AbsoluteAddress => cpu.bus.write(self.addr, data),
-      RelativeAddress => cpu.bus.write(cpu.pc + self.addr, data),
       Implicit => panic!("Cannot write to Implicit DataSource"),
     }
   }
@@ -697,7 +694,7 @@ fn branch_if(condition: bool, cpu: &mut Processor, data: &DataSource) -> Instruc
     // If we are branching, we use up an extra cycle
     cpu.cycles_left += 1;
 
-    let new_pc = cpu.pc + data.addr;
+    let new_pc = data.addr;
     // If we're moving the program counter into a new page, we use one cycle in
     // _addition_ to the cycle we use to branch (totaling +2).
     //
@@ -1055,7 +1052,7 @@ fn izx(cpu: &mut Processor) -> AddressingModeResult {
 }
 
 /// (Indirect), Y
-fn idy(cpu: &mut Processor) -> AddressingModeResult {
+fn izy(cpu: &mut Processor) -> AddressingModeResult {
   // Our pointer lives in the zeroth page, so we only need to read one byte
   let ptr = cpu.bus.read(cpu.pc) as u16 & 0x00FF;
   cpu.pc += 1;
@@ -1091,19 +1088,23 @@ fn acc(cpu: &mut Processor) -> AddressingModeResult {
 
 /// Relative
 fn rel(cpu: &mut Processor) -> AddressingModeResult {
-  let mut offset = cpu.bus.read(cpu.pc) as u16 & 0x00FF;
+  let offset = cpu.bus.read(cpu.pc);
   cpu.pc += 1;
 
   // This ensures the binary arithmatic works out when adding this relative
   // address to our program counter.
-  if offset & 0x80 != 0 {
-    offset |= 0xFF00;
-  }
+  let addr = if offset & 0x80 != 0 {
+    // Get the inverted version of the offset by applying two's complement:
+    let neg_offset = !(offset as u16) + 1 & 0x00FF;
+    cpu.pc - neg_offset
+  } else {
+    cpu.pc + (offset as u16) & 0x00FF
+  };
 
   AddressingModeResult {
     data: DataSource {
-      kind: RelativeAddress,
-      addr: offset,
+      kind: AbsoluteAddress,
+      addr,
     },
     needs_extra_cycle: false,
   }
@@ -1128,11 +1129,11 @@ const ILLEGAL_OPERATION: Operation = Operation {
 // addressing_map = {
 //   'Absolute,X': 'abx',
 //   'Absolute,Y': 'aby',
-//   '(Indirect,X)': 'idx',
-//   '(Indirect),Y': 'idy',
+//   '(Indirect,X)': 'izx',
+//   '(Indirect),Y': 'izy',
 //   'Zero Page': 'zp0',
 //   'Zero Page,X': 'zpx',
-//   'Zero Page,Y': 'zpx',
+//   'Zero Page,Y': 'zpy',
 //   Absolute: 'abs',
 //   Accumulator: 'acc',
 //   Immediate: 'imm',
@@ -1142,10 +1143,10 @@ const ILLEGAL_OPERATION: Operation = Operation {
 //   Indirect: 'ind',
 //   Relative: 'rel',
 // };
-//
+
 // makeOp = ({opcode, instruction, addressing_mode, cycles}) => `0x${opcode.slice(1)} => Operation {
 //   instruction: ${instruction.toLowerCase()},
-//   addressing_mode: ${addressing_map[addressing_mode] || addressing_mode},
+//   addressing_mode: ${addressing_map[addressing_mode.trim()] || addressing_mode},
 //   cycles: ${parseInt(cycles)},
 // }`;
 //
@@ -1217,7 +1218,7 @@ lazy_static! {
     },
     0x71 => Operation {
       instruction: adc,
-      addressing_mode: idy,
+      addressing_mode: izy,
       cycles: 5,
     },
     0x29 => Operation {
@@ -1257,7 +1258,7 @@ lazy_static! {
     },
     0x31 => Operation {
       instruction: and,
-      addressing_mode: idy,
+      addressing_mode: izy,
       cycles: 5,
     },
     0x0A => Operation {
@@ -1397,7 +1398,7 @@ lazy_static! {
     },
     0xD1 => Operation {
       instruction: cmp,
-      addressing_mode: idy,
+      addressing_mode: izy,
       cycles: 5,
     },
     0xE0 => Operation {
@@ -1497,7 +1498,7 @@ lazy_static! {
     },
     0x51 => Operation {
       instruction: eor,
-      addressing_mode: idy,
+      addressing_mode: izy,
       cycles: 5,
     },
     0xE6 => Operation {
@@ -1582,7 +1583,7 @@ lazy_static! {
     },
     0xB1 => Operation {
       instruction: lda,
-      addressing_mode: idy,
+      addressing_mode: izy,
       cycles: 5,
     },
     0xA2 => Operation {
@@ -1597,7 +1598,7 @@ lazy_static! {
     },
     0xB6 => Operation {
       instruction: ldx,
-      addressing_mode: zpx,
+      addressing_mode: zpy,
       cycles: 4,
     },
     0xAE => Operation {
@@ -1702,7 +1703,7 @@ lazy_static! {
     },
     0x11 => Operation {
       instruction: ora,
-      addressing_mode: idy,
+      addressing_mode: izy,
       cycles: 5,
     },
     0x48 => Operation {
@@ -1822,7 +1823,7 @@ lazy_static! {
     },
     0xF1 => Operation {
       instruction: sbc,
-      addressing_mode: idy,
+      addressing_mode: izy,
       cycles: 5,
     },
     0x38 => Operation {
@@ -1872,7 +1873,7 @@ lazy_static! {
     },
     0x91 => Operation {
       instruction: sta,
-      addressing_mode: idy,
+      addressing_mode: izy,
       cycles: 6,
     },
     0x86 => Operation {
@@ -1882,7 +1883,7 @@ lazy_static! {
     },
     0x96 => Operation {
       instruction: stx,
-      addressing_mode: zpx,
+      addressing_mode: zpy,
       cycles: 4,
     },
     0x8E => Operation {

@@ -41,14 +41,40 @@ impl Game for CPUDebugger {
                 cpu: Processor::new(Box::new(Ram::new())),
             };
 
-            let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
+            let program_start: u16 = 0x8000;
 
             debugger_ui.cpu.bus.write16(PC_INIT_ADDR, program_start);
 
             #[rustfmt::skip]
             let program: Vec<u8> = vec![
-                0x09, 0x02, // ORA 2
-                0xEA
+                0xA2,
+                0x0A,
+                0x8E,
+                0x00,
+                0x00,
+                0xA2,
+                0x03,
+                0x8E,
+                0x01,
+                0x00,
+                0xAC,
+                0x00,
+                0x00,
+                0xA9,
+                0x00,
+                0x18,
+                0x6D,
+                0x01,
+                0x00,
+                0x88,
+                0xD0,
+                0xFA,
+                0x8D,
+                0x02,
+                0x00,
+                0xEA,
+                0xEA,
+                0xEA,                
             ];
             let mut offset: u16 = 0;
             for byte in program {
@@ -114,18 +140,18 @@ impl UserInterface for CPUDebugger {
     fn layout(&mut self, window: &Window) -> Element<Message> {
         let mut stack_str = String::new();
         for page in 0..(STACK_SIZE / 16) {
-            let addr = STACK_START as u16 + (page as u16) * 16;
-            stack_str.push_str(&format!("{:04X}: ", page * 16));
+            let addr = 0 as u16 + (page as u16) * 16;
+            stack_str.push_str(&format!("{:04X}: ", addr));
             for offset in 0..16 {
                 stack_str.push_str(&format!("{:02X} ", self.cpu.bus.read(addr + offset)));
             }
             stack_str.push_str("\n");
         }
 
-        let first_pc_page = (self.cpu.pc / 16) as u8;
+        let first_pc_page = (self.cpu.pc / 16) as u16;
         let mut ram_str = String::new();
         for page in 0..(STACK_SIZE / 16) {
-            let addr = ((first_pc_page + page) as u16) * 16;
+            let addr = ((first_pc_page + page as u16) as u16) * 16;
             ram_str.push_str(&format!("{:04X}: ", addr));
             for offset in 0..16 {
                 let addr = addr + offset;
