@@ -48,6 +48,7 @@ impl Game for CPUDebugger {
             #[rustfmt::skip]
             let program: Vec<u8> = vec![
                 0x09, 0x02, // ORA 2
+                0xEA
             ];
             let mut offset: u16 = 0;
             for byte in program {

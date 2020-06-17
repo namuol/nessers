@@ -870,16 +870,17 @@ fn imm(cpu: &mut Processor) -> AddressingModeResult {
 /// Read a byte at an address in the zeroth page; i.e. from one of the first 256
 /// bytes in memory
 fn zp0(cpu: &mut Processor) -> AddressingModeResult {
-  // // Read the first operand, constructing a 16-bit address within the zeroth
-  // // page:
-  // let addr_abs = (cpu.bus.read(cpu.pc) as u16) & 0x00FF;
-  // cpu.pc += 1;
-  // AddressingModeResult {
-  //   data: 0x00,
-  //   addr_abs,
-  //   needs_extra_cycle: false,
-  // }
-  todo!();
+  // Read the first operand, constructing a 16-bit address within the zeroth
+  // page:
+  let addr_abs = (cpu.bus.read(cpu.pc) as u16) & 0x00FF;
+  cpu.pc += 1;
+  AddressingModeResult {
+    data: DataSource {
+      kind: AbsoluteAddress,
+      addr: addr_abs,
+    },
+    needs_extra_cycle: false,
+  }
 }
 
 /// Zero Page addressing, with X address offset
@@ -887,16 +888,17 @@ fn zp0(cpu: &mut Processor) -> AddressingModeResult {
 /// Read a byte at an address in the zeroth page + X; i.e. starting from X, plus
 /// 0-255
 fn zpx(cpu: &mut Processor) -> AddressingModeResult {
-  // // Read the first operand, constructing a 16-bit address within the zeroth
-  // // page:
-  // let addr_abs = ((cpu.x + cpu.bus.read(cpu.pc)) as u16) & 0x00FF;
-  // cpu.pc += 1;
-  // AddressingModeResult {
-  //   data: 0x00,
-  //   addr_abs,
-  //   needs_extra_cycle: false,
-  // }
-  todo!();
+  // Read the first operand, constructing a 16-bit address within the zeroth
+  // page:
+  let addr_abs = ((cpu.x + cpu.bus.read(cpu.pc)) as u16) & 0x00FF;
+  cpu.pc += 1;
+  AddressingModeResult {
+    data: DataSource {
+      kind: AbsoluteAddress,
+      addr: addr_abs,
+    },
+    needs_extra_cycle: false,
+  }
 }
 
 /// Zero Page addressing, with Y address offset
@@ -904,16 +906,17 @@ fn zpx(cpu: &mut Processor) -> AddressingModeResult {
 /// Read a byte at an address in the zeroth page + Y; i.e. starting from Y, plus
 /// 0-255
 fn zpy(cpu: &mut Processor) -> AddressingModeResult {
-  // // Read the first operand, constructing a 16-bit address within the zeroth
-  // // page:
-  // let addr_abs = ((cpu.y + cpu.bus.read(cpu.pc)) as u16) & 0x00FF;
-  // cpu.pc += 1;
-  // AddressingModeResult {
-  //   data: 0x00,
-  //   addr_abs,
-  //   needs_extra_cycle: false,
-  // }
-  todo!();
+  // Read the first operand, constructing a 16-bit address within the zeroth
+  // page:
+  let addr_abs = ((cpu.y + cpu.bus.read(cpu.pc)) as u16) & 0x00FF;
+  cpu.pc += 1;
+  AddressingModeResult {
+    data: DataSource {
+      kind: AbsoluteAddress,
+      addr: addr_abs,
+    },
+    needs_extra_cycle: false,
+  }
 }
 
 /// Absolute addressing
@@ -938,23 +941,24 @@ fn abs(cpu: &mut Processor) -> AddressingModeResult {
 /// Read a full 16-bit address from the current program counter + 1, then apply
 /// an offset of X
 fn abx(cpu: &mut Processor) -> AddressingModeResult {
-  // let addr_lo = cpu.bus.read(cpu.pc) as u16;
-  // cpu.pc += 1;
-  // let addr_hi = cpu.bus.read(cpu.pc) as u16;
-  // cpu.pc += 1;
-  // let addr_abs = ((addr_hi << 8) | addr_lo) + cpu.x as u16;
+  let addr_lo = cpu.bus.read(cpu.pc) as u16;
+  cpu.pc += 1;
+  let addr_hi = cpu.bus.read(cpu.pc) as u16;
+  cpu.pc += 1;
+  let addr_abs = ((addr_hi << 8) | addr_lo) + cpu.x as u16;
 
-  // // If our hi byte is changed after we've added X, then it has changed due to
-  // // overflow which means we are crossing a page. When we cross a page, we may
-  // // need an extra cycle:
-  // let needs_extra_cycle = addr_abs & 0xFF00 != (addr_hi << 8);
+  // If our hi byte is changed after we've added X, then it has changed due to
+  // overflow which means we are crossing a page. When we cross a page, we may
+  // need an extra cycle:
+  let needs_extra_cycle = addr_abs & 0xFF00 != (addr_hi << 8);
 
-  // AddressingModeResult {
-  //   data: 0x00,
-  //   addr_abs,
-  //   needs_extra_cycle,
-  // }
-  todo!();
+  AddressingModeResult {
+    data: DataSource {
+      kind: AbsoluteAddress,
+      addr: addr_abs,
+    },
+    needs_extra_cycle,
+  }
 }
 
 /// Absolute addressing + Y
@@ -962,23 +966,24 @@ fn abx(cpu: &mut Processor) -> AddressingModeResult {
 /// Read a full 16-bit address from the current program counter + 1, then apply
 /// an offset of Y
 fn aby(cpu: &mut Processor) -> AddressingModeResult {
-  // let addr_lo = cpu.bus.read(cpu.pc) as u16;
-  // cpu.pc += 1;
-  // let addr_hi = cpu.bus.read(cpu.pc) as u16;
-  // cpu.pc += 1;
-  // let addr_abs = ((addr_hi << 8) | addr_lo) + cpu.y as u16;
+  let addr_lo = cpu.bus.read(cpu.pc) as u16;
+  cpu.pc += 1;
+  let addr_hi = cpu.bus.read(cpu.pc) as u16;
+  cpu.pc += 1;
+  let addr_abs = ((addr_hi << 8) | addr_lo) + cpu.y as u16;
 
-  // // If our hi byte is changed after we've added Y, then it has changed due to
-  // // overflow which means we are crossing a page. When we cross a page, we may
-  // // need an extra cycle:
-  // let needs_extra_cycle = addr_abs & 0xFF00 != (addr_hi << 8);
+  // If our hi byte is changed after we've added Y, then it has changed due to
+  // overflow which means we are crossing a page. When we cross a page, we may
+  // need an extra cycle:
+  let needs_extra_cycle = addr_abs & 0xFF00 != (addr_hi << 8);
 
-  // AddressingModeResult {
-  //   data: 0x00,
-  //   addr_abs,
-  //   needs_extra_cycle,
-  // }
-  todo!();
+  AddressingModeResult {
+    data: DataSource {
+      kind: AbsoluteAddress,
+      addr: addr_abs,
+    },
+    needs_extra_cycle,
+  }
 }
 
 /// Indirect
@@ -1862,11 +1867,9 @@ mod tests {
 
   struct DummyBus {}
   impl Bus for DummyBus {
-    fn write(&mut self, _: u16, _: u8) {
-      todo!()
-    }
+    fn write(&mut self, _: u16, _: u8) {}
     fn read(&self, _: u16) -> u8 {
-      todo!()
+      0x00
     }
   }
 
