@@ -988,7 +988,29 @@ fn aby(cpu: &mut Processor) -> AddressingModeResult {
 
 /// Indirect
 fn ind(cpu: &mut Processor) -> AddressingModeResult {
-  todo!();
+  let ptr_lo = cpu.bus.read(cpu.pc) as u16;
+  cpu.pc += 1;
+  let ptr_hi = cpu.bus.read(cpu.pc) as u16;
+  cpu.pc += 1;
+  let ptr = ptr_hi << 8 | ptr_lo;
+
+  // The 6502 has a hardware bug where if you happen to have a pointer address
+  // in memory that spans across pages (remember, pointers are 2 bytes, and
+  // therefore it is possible for this to happen), it will not actually read the
+  // hi byte of the address properly
+  let addr_abs = if ptr_lo == 0x00FF {
+    ((cpu.bus.read(ptr & 0xFF00) as u16) << 8) | cpu.bus.read(ptr) as u16
+  } else {
+    cpu.bus.read16(ptr)
+  };
+
+  AddressingModeResult {
+    data: DataSource {
+      kind: AbsoluteAddress,
+      addr: addr_abs,
+    },
+    needs_extra_cycle: false,
+  }
 }
 
 /// (Indirect, X)
