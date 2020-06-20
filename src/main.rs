@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate maplit;
 
-use crate::cpu6502::PC_INIT_ADDR;
 use coffee::graphics::{Color, Frame, Window, WindowSettings};
 use coffee::input::{self, keyboard, Input};
 use coffee::load::Task;
@@ -15,7 +14,8 @@ pub mod cpu6502;
 pub mod mirror;
 pub mod ram;
 
-use crate::cpu6502::{Processor, StatusFlag, STACK_SIZE};
+use crate::bus::Bus;
+use crate::cpu6502::{Processor, StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::ram::Ram;
 
 fn main() -> Result<()> {
@@ -40,7 +40,7 @@ impl Game for CPUDebugger {
         // Load your game assets here. Check out the `load` module!
         Task::succeed(|| {
             let mut debugger_ui = CPUDebugger {
-                cpu: Processor::new(Box::new(Ram::new(0x0000, 64 * 1024))),
+                cpu: Processor::new(Bus::new(vec![Box::new(Ram::new(64 * 1024))])),
             };
 
             let program_start: u16 = 0x8000;
@@ -60,8 +60,9 @@ impl Game for CPUDebugger {
                 // [0, 1, ...]
                 //     ^
                 0x95, 0x01, // STA #1
-                // LOOP
-
+                //
+                // LOOP:
+                //
                 // A = RAM[X]
                 0xB5, 0x00, // LDA (X + 0)
                 // A = A + RAM[X + 1]

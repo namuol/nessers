@@ -1,4 +1,4 @@
-use crate::bus_device::BusDevice;
+use crate::bus::Bus;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
@@ -21,7 +21,7 @@ pub enum StatusFlag {
 use StatusFlag::*;
 
 pub struct Processor {
-  pub bus: Box<dyn BusDevice>,
+  pub bus: Bus,
 
   /// Processor Status
   pub status: u8,
@@ -50,7 +50,7 @@ const IRQ_POINTER: u16 = 0xFFFE;
 const NMI_POINTER: u16 = 0xFFFA;
 
 impl Processor {
-  pub fn new(bus: Box<dyn BusDevice>) -> Processor {
+  pub fn new(bus: Bus) -> Processor {
     Processor {
       bus,
       status: 0,
@@ -1950,6 +1950,7 @@ impl From<u8> for &Operation {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::bus_device::BusDevice;
   use crate::ram::Ram;
 
   const ALL_FLAGS: [StatusFlag; 8] = [
@@ -1969,11 +1970,14 @@ mod tests {
     fn read(&self, _: u16) -> u8 {
       0x00
     }
+    fn size(&self) -> usize {
+      64 * 1024
+    }
   }
 
   #[test]
   fn get_status() {
-    let mut cpu = Processor::new(Box::new(DummyBus {}));
+    let mut cpu = Processor::new(Bus::new(vec![Box::new(DummyBus {})]));
 
     for flag in &ALL_FLAGS {
       assert_eq!(cpu.get_status(*flag), 0b0000);
@@ -1995,7 +1999,7 @@ mod tests {
 
   #[test]
   fn set_status() {
-    let mut cpu = Processor::new(Box::new(DummyBus {}));
+    let mut cpu = Processor::new(Bus::new(vec![Box::new(DummyBus {})]));
 
     for flag in &ALL_FLAGS {
       let flag = *flag;
@@ -2009,8 +2013,8 @@ mod tests {
 
   #[test]
   fn simple_and() {
-    let mut cpu = Processor::new(Box::new(Ram::new(0x0000, 64 * 1024)));
-    let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
+    let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(64 * 1024))]));
+    let program_start: u16 = 0x8000;
 
     cpu.bus.write16(PC_INIT_ADDR, program_start);
 
@@ -2033,15 +2037,16 @@ mod tests {
 
   #[test]
   fn simple_ora() {
-    let mut ram = Ram::new(0x0000, 64 * 1024);
-    let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
+    let mut ram = Ram::new(64 * 1024);
+    let program_start: u16 = 0x8000;
 
     ram.write16(PC_INIT_ADDR, program_start);
 
     ram.write(program_start, 0x09); // ORA - Immediate
     ram.write(program_start + 1, 0x02); //   2
 
-    let mut cpu = Processor::new(Box::new(ram));
+    let mut cpu = Processor::new(Bus::new(vec![Box::new(ram)]));
+
     cpu.sig_reset();
     cpu.step();
 
@@ -2058,8 +2063,8 @@ mod tests {
 
   #[test]
   fn simple_eor() {
-    let mut ram = Ram::new(0x0000, 64 * 1024);
-    let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
+    let mut ram = Ram::new(64 * 1024);
+    let program_start: u16 = 0x8000;
 
     ram.write16(PC_INIT_ADDR, program_start);
 
@@ -2069,7 +2074,8 @@ mod tests {
     ram.write(program_start + 2, 0x49); // EOR - Immediate
     ram.write(program_start + 3, 0x02); //   2
 
-    let mut cpu = Processor::new(Box::new(ram));
+    let mut cpu = Processor::new(Bus::new(vec![Box::new(ram)]));
+
     cpu.sig_reset();
     cpu.step();
 
@@ -2193,8 +2199,9 @@ mod tests {
     ];
 
     for test in tests {
-      let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
-      let mut cpu = Processor::new(Box::new(Ram::new(0x0000, 64 * 1024)));
+      let program_start: u16 = 0x8000;
+      let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(64 * 1024))]));
+
       cpu.bus.write16(PC_INIT_ADDR, program_start);
       #[rustfmt::skip]
       let program: Vec<u8> = vec![
@@ -2321,8 +2328,9 @@ mod tests {
     ];
 
     for test in tests {
-      let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
-      let mut cpu = Processor::new(Box::new(Ram::new(0x0000, 64 * 1024)));
+      let program_start: u16 = 0x8000;
+      let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(64 * 1024))]));
+
       cpu.bus.write16(PC_INIT_ADDR, program_start);
       #[rustfmt::skip]
       let program: Vec<u8> = vec![
