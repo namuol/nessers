@@ -11,11 +11,13 @@ use std::collections::HashSet;
 pub mod bus;
 pub mod bus_device;
 pub mod cpu6502;
+pub mod disassemble;
 pub mod mirror;
 pub mod ram;
 
 use crate::bus::Bus;
 use crate::cpu6502::{Processor, StatusFlag, PC_INIT_ADDR, STACK_SIZE};
+use crate::disassemble::disassemble;
 use crate::ram::Ram;
 
 fn main() -> Result<()> {
@@ -75,12 +77,13 @@ impl Game for CPUDebugger {
                 0x4C, 10, 0x80,
             ];
             let mut offset: u16 = 0;
-            for byte in program {
-                debugger_ui.cpu.bus.write(program_start + offset, byte);
+            for byte in &program {
+                debugger_ui.cpu.bus.write(program_start + offset, *byte);
                 offset += 1;
             }
+            println!("{}", disassemble(&program));
+
             debugger_ui.cpu.sig_reset();
-            debugger_ui.cpu.a = 0x01;
             debugger_ui.cpu.step();
 
             debugger_ui
