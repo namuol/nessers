@@ -1,4 +1,4 @@
-use crate::bus::Bus;
+use crate::bus_device::BusDevice;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
@@ -21,7 +21,7 @@ pub enum StatusFlag {
 use StatusFlag::*;
 
 pub struct Processor {
-  pub bus: Box<dyn Bus>,
+  pub bus: Box<dyn BusDevice>,
 
   /// Processor Status
   pub status: u8,
@@ -50,7 +50,7 @@ const IRQ_POINTER: u16 = 0xFFFE;
 const NMI_POINTER: u16 = 0xFFFA;
 
 impl Processor {
-  pub fn new(bus: Box<dyn Bus>) -> Processor {
+  pub fn new(bus: Box<dyn BusDevice>) -> Processor {
     Processor {
       bus,
       status: 0,
@@ -253,7 +253,6 @@ fn ora(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 /// Bit Test
 fn bit(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
   let m = data.read(cpu);
-  let result = cpu.a & m;
   cpu.set_status(Zero, cpu.a == 0x00);
 
   // Bit 6 from memory value is copied to overflow flag (why?):
@@ -327,7 +326,7 @@ fn sty(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 // Register Transfers
 
 /// Transfer Accumulator to X
-fn tax(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn tax(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.x = cpu.a;
 
   cpu.set_status(Zero, cpu.a == 0x00);
@@ -339,7 +338,7 @@ fn tax(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Transfer Accumulator to Y
-fn tay(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn tay(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.y = cpu.a;
 
   cpu.set_status(Zero, cpu.a == 0x00);
@@ -351,7 +350,7 @@ fn tay(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Transfer X to Accumulator
-fn txa(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn txa(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.a = cpu.x;
 
   cpu.set_status(Zero, cpu.x == 0x00);
@@ -363,7 +362,7 @@ fn txa(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Transfer Y to Accumulator
-fn tya(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn tya(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.a = cpu.y;
 
   cpu.set_status(Zero, cpu.y == 0x00);
@@ -377,7 +376,7 @@ fn tya(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 // Stack Operations
 
 /// Transfer Stack Pointer to X
-fn tsx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn tsx(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.x = cpu.s;
 
   cpu.set_status(Zero, cpu.s == 0x00);
@@ -389,7 +388,7 @@ fn tsx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Transfer X to Stack Pointer
-fn txs(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn txs(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.s = cpu.x;
 
   InstructionResult {
@@ -398,7 +397,7 @@ fn txs(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Push Accumulator
-fn pha(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn pha(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.push(cpu.a);
 
   InstructionResult {
@@ -407,7 +406,7 @@ fn pha(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Push Processor Status
-fn php(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn php(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.push(cpu.status);
 
   InstructionResult {
@@ -416,7 +415,7 @@ fn php(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Pull Accumulator
-fn pla(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn pla(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.a = cpu.pull();
 
   cpu.set_status(Zero, cpu.a == 0x00);
@@ -428,7 +427,7 @@ fn pla(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Pull Processor Status
-fn plp(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn plp(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   cpu.status = cpu.pull();
 
   InstructionResult {
@@ -846,7 +845,7 @@ fn rti(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// No operation
-fn nop(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn nop(_cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
   // Do nothing.
 
   InstructionResult {
@@ -1076,7 +1075,7 @@ fn izy(cpu: &mut Processor) -> AddressingModeResult {
 }
 
 /// Accumulator
-fn acc(cpu: &mut Processor) -> AddressingModeResult {
+fn acc(_cpu: &mut Processor) -> AddressingModeResult {
   AddressingModeResult {
     data: DataSource {
       kind: Accumulator,
@@ -1965,7 +1964,7 @@ mod tests {
   ];
 
   struct DummyBus {}
-  impl Bus for DummyBus {
+  impl BusDevice for DummyBus {
     fn write(&mut self, _: u16, _: u8) {}
     fn read(&self, _: u16) -> u8 {
       0x00
@@ -2010,7 +2009,7 @@ mod tests {
 
   #[test]
   fn simple_and() {
-    let mut cpu = Processor::new(Box::new(Ram::new()));
+    let mut cpu = Processor::new(Box::new(Ram::new(0x0000, 64 * 1024)));
     let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
 
     cpu.bus.write16(PC_INIT_ADDR, program_start);
@@ -2034,13 +2033,13 @@ mod tests {
 
   #[test]
   fn simple_ora() {
-    let mut ram = Ram::new();
+    let mut ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
 
     ram.write16(PC_INIT_ADDR, program_start);
 
-    ram.buf[program_start as usize] = 0x09; // ORA - Immediate
-    ram.buf[program_start as usize + 1] = 0x02; //   2
+    ram.write(program_start, 0x09); // ORA - Immediate
+    ram.write(program_start + 1, 0x02); //   2
 
     let mut cpu = Processor::new(Box::new(ram));
     cpu.sig_reset();
@@ -2059,16 +2058,16 @@ mod tests {
 
   #[test]
   fn simple_eor() {
-    let mut ram = Ram::new();
+    let mut ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
 
     ram.write16(PC_INIT_ADDR, program_start);
 
-    ram.buf[program_start as usize + 0] = 0x49; // EOR - Immediate
-    ram.buf[program_start as usize + 1] = 0x02; //   2
+    ram.write(program_start + 0, 0x49); // EOR - Immediate
+    ram.write(program_start + 1, 0x02); //   2
 
-    ram.buf[program_start as usize + 2] = 0x49; // EOR - Immediate
-    ram.buf[program_start as usize + 3] = 0x02; //   2
+    ram.write(program_start + 2, 0x49); // EOR - Immediate
+    ram.write(program_start + 3, 0x02); //   2
 
     let mut cpu = Processor::new(Box::new(ram));
     cpu.sig_reset();
@@ -2195,7 +2194,7 @@ mod tests {
 
     for test in tests {
       let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
-      let mut cpu = Processor::new(Box::new(Ram::new()));
+      let mut cpu = Processor::new(Box::new(Ram::new(0x0000, 64 * 1024)));
       cpu.bus.write16(PC_INIT_ADDR, program_start);
       #[rustfmt::skip]
       let program: Vec<u8> = vec![
@@ -2323,7 +2322,7 @@ mod tests {
 
     for test in tests {
       let program_start: u16 = STACK_START + STACK_SIZE as u16 + 1;
-      let mut cpu = Processor::new(Box::new(Ram::new()));
+      let mut cpu = Processor::new(Box::new(Ram::new(0x0000, 64 * 1024)));
       cpu.bus.write16(PC_INIT_ADDR, program_start);
       #[rustfmt::skip]
       let program: Vec<u8> = vec![

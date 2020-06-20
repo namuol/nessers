@@ -10,10 +10,12 @@ use coffee::{Game, Result, Timer};
 use std::collections::HashSet;
 
 pub mod bus;
+pub mod bus_device;
 pub mod cpu6502;
+pub mod mirror;
 pub mod ram;
 
-use crate::cpu6502::{Processor, StatusFlag, STACK_SIZE, STACK_START};
+use crate::cpu6502::{Processor, StatusFlag, STACK_SIZE};
 use crate::ram::Ram;
 
 fn main() -> Result<()> {
@@ -38,43 +40,38 @@ impl Game for CPUDebugger {
         // Load your game assets here. Check out the `load` module!
         Task::succeed(|| {
             let mut debugger_ui = CPUDebugger {
-                cpu: Processor::new(Box::new(Ram::new())),
+                cpu: Processor::new(Box::new(Ram::new(0x0000, 64 * 1024))),
             };
 
             let program_start: u16 = 0x8000;
 
             debugger_ui.cpu.bus.write16(PC_INIT_ADDR, program_start);
 
-            #[rustfmt::skip]
             let program: Vec<u8> = vec![
-                0xA2,
-                0x0A,
-                0x8E,
-                0x00,
-                0x00,
-                0xA2,
-                0x03,
-                0x8E,
-                0x01,
-                0x00,
-                0xAC,
-                0x00,
-                0x00,
-                0xA9,
-                0x00,
-                0x18,
-                0x6D,
-                0x01,
-                0x00,
-                0x88,
-                0xD0,
-                0xFA,
-                0x8D,
-                0x02,
-                0x00,
-                0xEA,
-                0xEA,
-                0xEA,                
+                // Initialize A to 0
+                0xA9, 0, // LDA #0
+                // Set X to 0x0000 + 0
+                0xA2, 0, // LDX #0
+                // [0, ...]
+                //  ^
+                0x95, 0x00, // STA #0
+                // Set A to 1
+                0xA9, 1, // LDA #1
+                // [0, 1, ...]
+                //     ^
+                0x95, 0x01, // STA #1
+                // LOOP
+
+                // A = RAM[X]
+                0xB5, 0x00, // LDA (X + 0)
+                // A = A + RAM[X + 1]
+                0x75, 0x01, // ADC (X + 1)
+                // RAM[X + 2] = A
+                0x95, 0x02, // STA (X + 2)
+                // Increment X
+                0xE8, // INX
+                // JMP Loop
+                0x4C, 10, 0x80,
             ];
             let mut offset: u16 = 0;
             for byte in program {

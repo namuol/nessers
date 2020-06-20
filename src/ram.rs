@@ -1,20 +1,22 @@
-use crate::bus::Bus;
-
-const RAM_SIZE: usize = 64 * 1024;
+use crate::bus_device::BusDevice;
 
 pub struct Ram {
-  pub buf: [u8; RAM_SIZE],
+  pub size: usize,
+  pub start: u16,
+  buf: Vec<u8>,
 }
 
 impl Ram {
-  pub fn new() -> Ram {
+  pub fn new(start: u16, size: usize) -> Ram {
     Ram {
-      buf: [0x00; RAM_SIZE],
+      size,
+      start,
+      buf: vec![0x00; size],
     }
   }
 }
 
-impl Bus for Ram {
+impl BusDevice for Ram {
   fn write(&mut self, addr: u16, data: u8) {
     self.buf[addr as usize] = data;
   }
