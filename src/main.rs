@@ -13,6 +13,7 @@ pub mod bus_device;
 pub mod cpu6502;
 pub mod disassemble;
 pub mod mirror;
+pub mod nes;
 pub mod ram;
 
 use crate::bus::Bus;
@@ -22,7 +23,7 @@ use crate::ram::Ram;
 
 fn main() -> Result<()> {
     <CPUDebugger as UserInterface>::run(WindowSettings {
-        title: String::from("A caffeinated game"),
+        title: String::from("nessers"),
         size: (1920, 1080),
         resizable: false,
         fullscreen: false,
@@ -65,10 +66,8 @@ impl Game for CPUDebugger {
                 //
                 // LOOP:
                 //
-                // A = RAM[X]
-                0xB5, 0x00, // LDA (X + 0)
                 // A = A + RAM[X + 1]
-                0x75, 0x01, // ADC (X + 1)
+                0x75, 0x00, // ADC (X)
                 // RAM[X + 2] = A
                 0x95, 0x02, // STA (X + 2)
                 // Increment X
@@ -197,7 +196,9 @@ impl UserInterface for CPUDebugger {
             idx += 1;
         }
         let start = (pc_idx - 8).max(0).min(disassembled_output.len() as i32) as usize;
-        let end = ((start as i32) + 32).max(0).min(disassembled_output.len() as i32) as usize;
+        let end = ((start as i32) + 32)
+            .max(0)
+            .min(disassembled_output.len() as i32) as usize;
         let disassembled_output = &disassembled_output[start..end];
 
         let right_pane = Column::new()
