@@ -81,7 +81,6 @@ impl Game for CPUDebugger {
                 debugger_ui.cpu.bus.write(program_start + offset, *byte);
                 offset += 1;
             }
-            println!("{}", disassemble(&program));
 
             debugger_ui.cpu.sig_reset();
             debugger_ui.cpu.step();
@@ -172,6 +171,35 @@ impl UserInterface for CPUDebugger {
             .push(Text::new("---").size(32))
             .push(Text::new(&ram_str).size(32));
 
+        let mut program: Vec<u8> = vec![];
+        let program_start = self.cpu.bus.read16(PC_INIT_ADDR);
+        let mut pc = program_start;
+        while pc < self.cpu.pc + 128 {
+            program.push(self.cpu.bus.read(pc));
+            pc += 1;
+        }
+        let disassembled = disassemble(&program);
+        let mut disassembled_output: Vec<String> = vec![];
+        let mut pc_idx: i32 = 0;
+        let mut idx: i32 = 0;
+        for o in disassembled {
+            let current = self.cpu.pc == program_start + o.offset;
+            if current {
+                pc_idx = idx;
+            }
+            disassembled_output.push(format!(
+                "{} ${:04X}: {} {}",
+                if current { ">" } else { " " },
+                program_start + o.offset,
+                o.instruction_name,
+                o.params
+            ));
+            idx += 1;
+        }
+        let start = (pc_idx - 8).max(0).min(disassembled_output.len() as i32) as usize;
+        let end = ((start as i32) + 32).max(0).min(disassembled_output.len() as i32) as usize;
+        let disassembled_output = &disassembled_output[start..end];
+
         let right_pane = Column::new()
             .push(
                 Row::new()
@@ -222,7 +250,9 @@ impl UserInterface for CPUDebugger {
             .push(Text::new(&format!("PC: {:04X} -", self.cpu.pc)).size(32))
             .push(Text::new(&format!(" A: {:02X} ({})", self.cpu.a, self.cpu.a)).size(32))
             .push(Text::new(&format!(" X: {:02X} ({})", self.cpu.x, self.cpu.x)).size(32))
-            .push(Text::new(&format!(" Y: {:02X} ({})", self.cpu.y, self.cpu.y)).size(32));
+            .push(Text::new(&format!(" Y: {:02X} ({})", self.cpu.y, self.cpu.y)).size(32))
+            .push(Text::new("---".into()).size(32))
+            .push(Text::new(&disassembled_output.join("\n")).size(32));
 
         Row::new()
             .padding(16)

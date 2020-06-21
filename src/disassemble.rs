@@ -2,13 +2,20 @@ use crate::cpu6502::AddressingMode::*;
 use crate::cpu6502::Instruction::*;
 use crate::cpu6502::Operation;
 
-pub fn disassemble(program: &Vec<u8>) -> String {
-  let mut output: Vec<String> = vec![];
+pub struct DisassembledOperation {
+  pub instruction_name: String,
+  pub params: String,
+  pub offset: u16,
+}
+
+pub fn disassemble(program: &Vec<u8>) -> Vec<DisassembledOperation> {
+  let mut output: Vec<DisassembledOperation> = vec![];
   let mut pc = 0x0000;
   while pc < program.len() {
+    let offset = pc;
     let operation: &Operation = program[pc].into();
     pc += 1;
-    let instruction_name = match operation.instruction {
+    let instruction_name: String = match operation.instruction {
       ADC => "ADC",
       AND => "AND",
       ASL => "ASL",
@@ -65,7 +72,8 @@ pub fn disassemble(program: &Vec<u8>) -> String {
       TXA => "TXA",
       TXS => "TXS",
       TYA => "TYA",
-    };
+    }
+    .into();
     let params: String = match &operation.addressing_mode {
       IMP => {
         // Implied; nothing to read:
@@ -97,33 +105,33 @@ pub fn disassemble(program: &Vec<u8>) -> String {
       }
       ABS => {
         // Absolute; read two bytes:
-        let hi = program[pc] as u16;
-        pc += 1;
         let lo = program[pc] as u16;
+        pc += 1;
+        let hi = program[pc] as u16;
         pc += 1;
         format!("${:04X}", (hi << 8) | lo)
       }
       ABX => {
         // Absolute, X; read two bytes:
-        let hi = program[pc] as u16;
-        pc += 1;
         let lo = program[pc] as u16;
+        pc += 1;
+        let hi = program[pc] as u16;
         pc += 1;
         format!("${:04X},X", (hi << 8) | lo)
       }
       ABY => {
         // Absolute, Y; read two bytes:
-        let hi = program[pc] as u16;
-        pc += 1;
         let lo = program[pc] as u16;
+        pc += 1;
+        let hi = program[pc] as u16;
         pc += 1;
         format!("${:04X},Y", (hi << 8) | lo)
       }
       IND => {
         // Indirect, Y; read four bytes:
-        let hi = program[pc] as u16;
-        pc += 1;
         let lo = program[pc] as u16;
+        pc += 1;
+        let hi = program[pc] as u16;
         pc += 1;
         format!("(${:04X})", (hi << 8) | lo)
       }
@@ -158,8 +166,12 @@ pub fn disassemble(program: &Vec<u8>) -> String {
       }
     };
 
-    output.push(format!("{} {}", instruction_name, params));
+    output.push(DisassembledOperation {
+      instruction_name,
+      params,
+      offset: offset as u16,
+    });
   }
 
-  output.join("\n")
+  output
 }
