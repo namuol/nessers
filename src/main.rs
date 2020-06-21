@@ -66,10 +66,10 @@ impl Game for CPUDebugger {
                 //
                 // LOOP:
                 //
-                // A = A + RAM[X + 1]
-                0x75, 0x00, // ADC (X)
+                // A = A + RAM[X]
+                0x75, 0x00, // ADC $00,X
                 // RAM[X + 2] = A
-                0x95, 0x02, // STA (X + 2)
+                0x95, 0x02, // STA $02,X
                 // Increment X
                 0xE8, // INX
                 // JMP Loop
