@@ -1,7 +1,7 @@
 use crate::bus_device::BusDevice;
 
 pub struct Bus {
-  devices: Vec<Box<dyn BusDevice>>,
+  pub devices: Vec<Box<dyn BusDevice>>,
 }
 
 impl Bus {
@@ -21,7 +21,7 @@ impl Bus {
       let size = current_device.size();
       let device_end = device_start + size;
       if (addr as usize) >= device_start && (addr as usize) < device_end {
-        current_device.write(device_start as u16 + addr, data);
+        current_device.write(addr - (device_start as u16), data);
         break;
       }
       idx += 1;
@@ -39,7 +39,7 @@ impl Bus {
       let size = current_device.size();
       let device_end = device_start + size;
       if (addr as usize) >= device_start && (addr as usize) < device_end {
-        current_device.write16(device_start as u16 + addr, data);
+        current_device.write16(addr - (device_start as u16), data);
         break;
       }
       idx += 1;
@@ -57,7 +57,7 @@ impl Bus {
       let size = current_device.size();
       let device_end = device_start + size;
       if (addr as usize) >= device_start && (addr as usize) < device_end {
-        return current_device.read(device_start as u16 + addr);
+        return current_device.read(addr - (device_start as u16));
       }
       idx += 1;
       device_start += current_device.size();
@@ -76,7 +76,7 @@ impl Bus {
       let size = current_device.size();
       let device_end = device_start + size;
       if (addr as usize) >= device_start && (addr as usize) < device_end {
-        return current_device.read16(device_start as u16 + addr);
+        return current_device.read16(addr - (device_start as u16));
       }
       idx += 1;
       device_start += current_device.size();

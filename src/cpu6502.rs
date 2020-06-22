@@ -1257,12 +1257,6 @@ fn rel(cpu: &mut Processor) -> AddressingModeResult {
   }
 }
 
-fn noop(_: &mut Processor, _: &DataSource) -> InstructionResult {
-  InstructionResult {
-    may_need_extra_cycle: false,
-  }
-}
-
 const ILLEGAL_OPERATION: Operation = Operation {
   addressing_mode: IMP,
   instruction: NOP,

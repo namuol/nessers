@@ -10,15 +10,17 @@ use std::collections::HashSet;
 
 pub mod bus;
 pub mod bus_device;
+pub mod cart;
 pub mod cpu6502;
 pub mod disassemble;
 pub mod mirror;
-pub mod nes;
 pub mod ram;
 
 use crate::bus::Bus;
+use crate::cart::Cart;
 use crate::cpu6502::{Processor, StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;
+use crate::mirror::Mirror;
 use crate::ram::Ram;
 
 fn main() -> Result<()> {
@@ -42,44 +44,60 @@ impl Game for CPUDebugger {
     fn load(_window: &Window) -> Task<CPUDebugger> {
         // Load your game assets here. Check out the `load` module!
         Task::succeed(|| {
-            let mut debugger_ui = CPUDebugger {
-                cpu: Processor::new(Bus::new(vec![Box::new(Ram::new(64 * 1024))])),
+            let cart = match Cart::from_file("src/test_fixtures/nestest.nes") {
+                Ok(c) => c,
+                Err(msg) => panic!(msg)
             };
 
-            let program_start: u16 = 0x8000;
+            let mut debugger_ui = CPUDebugger {
+                cpu: Processor::new(Bus::new(vec![
+                    // 2K internal RAM, mirrored to 8K
+                    Box::new(Mirror::new(Box::new(Ram::new(2 * 1024)), 8 * 1024)),
+                    // PPU Registers, mirrored for 8K
+                    Box::new(Mirror::new(Box::new(Ram::new(8)), 8 * 1024)),
+                    // APU & I/O Registers
+                    Box::new(Ram::new(0x18)),
+                    // APU & I/O functionality that is normally disabled
+                    Box::new(Ram::new(0x08)),
+                    // Cartridge
+                    Box::new(cart),
+                ])),
+            };
 
-            debugger_ui.cpu.bus.write16(PC_INIT_ADDR, program_start);
+            // let program_start: u16 = 0x8000;
 
-            let program: Vec<u8> = vec![
-                // Initialize A to 0
-                0xA9, 0, // LDA #0
-                // Set X to 0x0000 + 0
-                0xA2, 0, // LDX #0
-                // [0, ...]
-                //  ^
-                0x95, 0x00, // STA #0
-                // Set A to 1
-                0xA9, 1, // LDA #1
-                // [0, 1, ...]
-                //     ^
-                0x95, 0x01, // STA #1
-                //
-                // LOOP:
-                //
-                // A = A + RAM[X]
-                0x75, 0x00, // ADC $00,X
-                // RAM[X + 2] = A
-                0x95, 0x02, // STA $02,X
-                // Increment X
-                0xE8, // INX
-                // JMP Loop
-                0x4C, 10, 0x80,
-            ];
-            let mut offset: u16 = 0;
-            for byte in &program {
-                debugger_ui.cpu.bus.write(program_start + offset, *byte);
-                offset += 1;
-            }
+            // debugger_ui.cpu.bus.write16(PC_INIT_ADDR, program_start);
+
+            // let program: Vec<u8> = vec![
+            //     // Initialize A to 0
+            //     0xA9, 0, // LDA #0
+            //     // Set X to 0x0000 + 0
+            //     0xA2, 0, // LDX #0
+            //     // [0, ...]
+            //     //  ^
+            //     0x95, 0x00, // STA #0
+            //     // Set A to 1
+            //     0xA9, 1, // LDA #1
+            //     // [0, 1, ...]
+            //     //     ^
+            //     0x95, 0x01, // STA #1
+            //     //
+            //     // LOOP:
+            //     //
+            //     // A = A + RAM[X]
+            //     0x75, 0x00, // ADC $00,X
+            //     // RAM[X + 2] = A
+            //     0x95, 0x02, // STA $02,X
+            //     // Increment X
+            //     0xE8, // INX
+            //     // JMP Loop
+            //     0x4C, 10, 0x80,
+            // ];
+            // let mut offset: u16 = 0;
+            // for byte in &program {
+            //     debugger_ui.cpu.bus.write(program_start + offset, *byte);
+            //     offset += 1;
+            // }
 
             debugger_ui.cpu.sig_reset();
             debugger_ui.cpu.step();

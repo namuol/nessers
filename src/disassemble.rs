@@ -81,69 +81,69 @@ pub fn disassemble(program: &Vec<u8>) -> Vec<DisassembledOperation> {
       }
       IMM => {
         // Immediate; read one byte:
-        let param = program[pc];
+        let param = program[pc % program.len()];
         pc += 1;
         format!("#{:02X}", param)
       }
       ZP0 => {
         // Zero Page; read one byte:
-        let param = program[pc];
+        let param = program[pc % program.len()];
         pc += 1;
         format!("${:02X}", param)
       }
       ZPX => {
         // Zero Page with X offset; read one byte:
-        let param = program[pc];
+        let param = program[pc % program.len()];
         pc += 1;
         format!("${:02X},X", param)
       }
       ZPY => {
         // Zero Page with Y offset; read one byte:
-        let param = program[pc];
+        let param = program[pc % program.len()];
         pc += 1;
         format!("${:02X},Y", param)
       }
       ABS => {
         // Absolute; read two bytes:
-        let lo = program[pc] as u16;
+        let lo = program[pc % program.len()] as u16;
         pc += 1;
-        let hi = program[pc] as u16;
+        let hi = program[pc % program.len()] as u16;
         pc += 1;
         format!("${:04X}", (hi << 8) | lo)
       }
       ABX => {
         // Absolute, X; read two bytes:
-        let lo = program[pc] as u16;
+        let lo = program[pc % program.len()] as u16;
         pc += 1;
-        let hi = program[pc] as u16;
+        let hi = program[pc % program.len()] as u16;
         pc += 1;
         format!("${:04X},X", (hi << 8) | lo)
       }
       ABY => {
         // Absolute, Y; read two bytes:
-        let lo = program[pc] as u16;
+        let lo = program[pc % program.len()] as u16;
         pc += 1;
-        let hi = program[pc] as u16;
+        let hi = program[pc % program.len()] as u16;
         pc += 1;
         format!("${:04X},Y", (hi << 8) | lo)
       }
       IND => {
         // Indirect, Y; read four bytes:
-        let lo = program[pc] as u16;
+        let lo = program[pc % program.len()] as u16;
         pc += 1;
-        let hi = program[pc] as u16;
+        let hi = program[pc % program.len()] as u16;
         pc += 1;
         format!("(${:04X})", (hi << 8) | lo)
       }
       IZX => {
         // Indexed Indirect; read one byte:
-        let param = program[pc];
+        let param = program[pc % program.len()];
         pc += 1;
         format!("(${:02X},X)", param)
       }
       IZY => {
         // Indirect Indexed; read one byte:
-        let param = program[pc];
+        let param = program[pc % program.len()];
         pc += 1;
         format!("(${:02X}),Y", param)
       }
@@ -153,7 +153,7 @@ pub fn disassemble(program: &Vec<u8>) -> Vec<DisassembledOperation> {
       }
       REL => {
         // Relative; read one byte:
-        let param = program[pc];
+        let param = program[pc % program.len()];
         pc += 1;
 
         if param & 0x80 != 0 {
