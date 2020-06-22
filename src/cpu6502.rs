@@ -2179,16 +2179,15 @@ mod tests {
 
   #[test]
   fn simple_ora() {
-    let mut ram = Ram::new(64 * 1024);
+    let ram = Ram::new(64 * 1024);
     let program_start: u16 = 0x8000;
-
-    ram.write16(PC_INIT_ADDR, program_start);
-
-    ram.write(program_start, 0x09); // ORA - Immediate
-    ram.write(program_start + 1, 0x02); //   2
-
+    
     let mut cpu = Processor::new(Bus::new(vec![Box::new(ram)]));
+    
+    cpu.bus.write16(PC_INIT_ADDR, program_start);
 
+    cpu.bus.write(program_start, 0x09); // ORA - Immediate
+    cpu.bus.write(program_start + 1, 0x02); //   2
     cpu.sig_reset();
     cpu.step();
 
@@ -2205,19 +2204,17 @@ mod tests {
 
   #[test]
   fn simple_eor() {
-    let mut ram = Ram::new(64 * 1024);
+    let ram = Ram::new(64 * 1024);
     let program_start: u16 = 0x8000;
 
-    ram.write16(PC_INIT_ADDR, program_start);
-
-    ram.write(program_start + 0, 0x49); // EOR - Immediate
-    ram.write(program_start + 1, 0x02); //   2
-
-    ram.write(program_start + 2, 0x49); // EOR - Immediate
-    ram.write(program_start + 3, 0x02); //   2
-
     let mut cpu = Processor::new(Bus::new(vec![Box::new(ram)]));
+    cpu.bus.write16(PC_INIT_ADDR, program_start);
 
+    cpu.bus.write(program_start + 0, 0x49); // EOR - Immediate
+    cpu.bus.write(program_start + 1, 0x02); //   2
+
+    cpu.bus.write(program_start + 2, 0x49); // EOR - Immediate
+    cpu.bus.write(program_start + 3, 0x02); //   2
     cpu.sig_reset();
     cpu.step();
 
