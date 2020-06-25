@@ -2108,12 +2108,11 @@ mod tests {
 
   struct DummyBus {}
   impl BusDevice for DummyBus {
-    fn write(&mut self, _: u16, _: u8) {}
-    fn read(&self, _: u16) -> u8 {
-      0x00
+    fn write(&mut self, _: u16, _: u8) -> std::option::Option<()> {
+      None
     }
-    fn size(&self) -> usize {
-      64 * 1024
+    fn read(&self, _: u16) -> std::option::Option<u8> {
+      None
     }
   }
 
@@ -2155,7 +2154,7 @@ mod tests {
 
   #[test]
   fn simple_and() {
-    let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(64 * 1024))]));
+    let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(0x0000, 64 * 1024))]));
     let program_start: u16 = 0x8000;
 
     cpu.bus.write16(PC_INIT_ADDR, program_start);
@@ -2179,11 +2178,9 @@ mod tests {
 
   #[test]
   fn simple_ora() {
-    let ram = Ram::new(64 * 1024);
+    let ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = 0x8000;
-    
     let mut cpu = Processor::new(Bus::new(vec![Box::new(ram)]));
-    
     cpu.bus.write16(PC_INIT_ADDR, program_start);
 
     cpu.bus.write(program_start, 0x09); // ORA - Immediate
@@ -2204,7 +2201,7 @@ mod tests {
 
   #[test]
   fn simple_eor() {
-    let ram = Ram::new(64 * 1024);
+    let ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = 0x8000;
 
     let mut cpu = Processor::new(Bus::new(vec![Box::new(ram)]));
@@ -2339,7 +2336,7 @@ mod tests {
 
     for test in tests {
       let program_start: u16 = 0x8000;
-      let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(64 * 1024))]));
+      let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(0x0000, 64 * 1024))]));
 
       cpu.bus.write16(PC_INIT_ADDR, program_start);
       #[rustfmt::skip]
@@ -2468,7 +2465,7 @@ mod tests {
 
     for test in tests {
       let program_start: u16 = 0x8000;
-      let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(64 * 1024))]));
+      let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(0x0000, 64 * 1024))]));
 
       cpu.bus.write16(PC_INIT_ADDR, program_start);
       #[rustfmt::skip]

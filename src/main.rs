@@ -46,21 +46,25 @@ impl Game for CPUDebugger {
         Task::succeed(|| {
             let cart = match Cart::from_file("src/test_fixtures/nestest.nes") {
                 Ok(c) => c,
-                Err(msg) => panic!(msg)
+                Err(msg) => panic!(msg),
             };
 
             let mut debugger_ui = CPUDebugger {
                 cpu: Processor::new(Bus::new(vec![
-                    // 2K internal RAM, mirrored to 8K
-                    Box::new(Mirror::new(Box::new(Ram::new(2 * 1024)), 8 * 1024)),
-                    // PPU Registers, mirrored for 8K
-                    Box::new(Mirror::new(Box::new(Ram::new(8)), 8 * 1024)),
-                    // APU & I/O Registers
-                    Box::new(Ram::new(0x18)),
-                    // APU & I/O functionality that is normally disabled
-                    Box::new(Ram::new(0x08)),
                     // Cartridge
                     Box::new(cart),
+                    // 2K internal RAM, mirrored to 8K
+                    Box::new(Mirror::new(
+                        0x0000,
+                        Box::new(Ram::new(0x0000, 2 * 1024)),
+                        8 * 1024,
+                    )),
+                    // PPU Registers, mirrored for 8K
+                    Box::new(Mirror::new(0x2000, Box::new(Ram::new(0x2000, 8)), 8 * 1024)),
+                    // APU & I/O Registers
+                    Box::new(Ram::new(0x4000, 0x18)),
+                    // APU & I/O functionality that is normally disabled
+                    Box::new(Ram::new(0x4018, 0x08)),
                 ])),
             };
 

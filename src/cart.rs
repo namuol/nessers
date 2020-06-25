@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::bus_device::BusDevice;
+use crate::bus_device::{BusDevice, BusDeviceRange};
 
 const HEADER_START: [u8; 4] = [
   0x4E, // N
@@ -92,42 +92,46 @@ impl Cart {
   }
 }
 
-impl BusDevice for Cart {
+impl BusDeviceRange for Cart {
   fn size(&self) -> usize {
-    0xBFE0 // Beefy ($4020-$FFFF)
+    match self.mapper_code {
+      0 => self.prg.len() * 2,
+      code => panic!("Unexpected mapper code {}", code),
+    }
   }
-  fn write(&mut self, addr: u16, data: u8) {
+  fn start(&self) -> u16 {
+    match self.mapper_code {
+      0 => 0x8000,
+      code => panic!("Unexpected mapper code {}", code),
+    }
+  }
+}
+
+impl BusDevice for Cart {
+  fn write(&mut self, addr: u16, data: u8) -> Option<()> {
+    let start = self.start() as usize;
+    let len = self.prg.len();
     match self.mapper_code {
       0 => {
-        // FIXME: The Bus design needs to be replaced with something that allows
-        // absolute addressing in each device, and just order each device by
-        // priority, where each returns an `Option` with `None` if they don't
-        // read or write anything.
-        let abs_addr = addr + 0x4020;
-        if abs_addr < 0x8000 {
-          return;
+        if !self.in_range(addr) {
+          return None;
         }
-
-        let len = self.prg.len();
-        self.prg[((addr as usize) - 0x8000) % len] = data;
+        self.prg[((addr as usize) - start) % len] = data;
+        Some(())
       }
       code => panic!("Unexpected mapper code {}", code),
     }
   }
-  fn read(&self, addr: u16) -> u8 {
+  fn read(&self, addr: u16) -> Option<u8> {
+    let start = self.start() as usize;
+    let len = self.prg.len();
     match self.mapper_code {
       0 => {
-        // FIXME: The Bus design needs to be replaced with something that allows
-        // absolute addressing in each device, and just order each device by
-        // priority, where each returns an `Option` with `None` if they don't
-        // read or write anything.
-        let abs_addr = addr + 0x4020;
-        if abs_addr < 0x8000 {
-          return 0x00;
+        if !self.in_range(addr) {
+          return None;
         }
-
-        let len = self.prg.len();
-        return self.prg[((addr as usize) - 0x7FE0) % len];
+        let internal_addr = ((addr as usize) - start) % len;
+        Some(self.prg[internal_addr])
       }
       code => panic!("Unexpected mapper code {}", code),
     }

@@ -12,7 +12,16 @@
 //     device is read from)
 
 pub trait BusDevice {
+  fn write(&mut self, addr: u16, data: u8) -> Option<()>;
+  fn read(&self, addr: u16 /*, read_only: bool*/) -> Option<u8>;
+}
+
+pub trait BusDeviceRange {
+  fn start(&self) -> u16;
   fn size(&self) -> usize;
-  fn write(&mut self, addr: u16, data: u8);
-  fn read(&self, addr: u16 /*, read_only: bool*/) -> u8;
+  fn in_range(&self, addr: u16) -> bool {
+    let start = self.start();
+    let size = self.size() as usize;
+    addr >= start && (addr as usize) < (start as usize) + size
+  }
 }
