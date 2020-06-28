@@ -1073,6 +1073,7 @@ name = "nessers"
 version = "0.1.0"
 dependencies = [
  "coffee",
+ "image",
  "lazy_static",
  "maplit",
 ]

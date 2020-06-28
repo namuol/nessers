@@ -1,10 +1,10 @@
 #[macro_use]
 extern crate maplit;
 
-use coffee::graphics::{Color, Frame, Window, WindowSettings};
+use coffee::graphics::{Color, Frame, Gpu, Window, WindowSettings};
 use coffee::input::{self, keyboard, Input};
 use coffee::load::Task;
-use coffee::ui::{Column, Element, Renderer, Row, Text, UserInterface};
+use coffee::ui::{Column, Element, Image, Renderer, Row, Text, UserInterface};
 use coffee::{Game, Result, Timer};
 use std::collections::HashSet;
 
@@ -24,7 +24,7 @@ use crate::mirror::Mirror;
 use crate::ram::Ram;
 
 fn main() -> Result<()> {
-    <CPUDebugger as UserInterface>::run(WindowSettings {
+    <NESDebugger as UserInterface>::run(WindowSettings {
         title: String::from("nessers"),
         size: (1920, 1080),
         resizable: false,
@@ -33,15 +33,64 @@ fn main() -> Result<()> {
     })
 }
 
-struct CPUDebugger {
+const SCREEN_W: usize = 256;
+const SCREEN_H: usize = 240;
+
+struct NESDebugger {
+    screen: [u8; SCREEN_W * SCREEN_H],
+    img: Option<coffee::graphics::Image>,
     cpu: Processor,
 }
 
-impl Game for CPUDebugger {
+// Fibonacci sequence program:
+// let mut debugger_ui = NESDebugger {
+//     screen: [0x00; SCREEN_W * SCREEN_H],
+//     cpu: Processor::new(Bus::new(vec![Box::new(Ram::new(0x0000, 0xFFFF + 1))])),
+// };
+
+// let program_start: u16 = 0x8000;
+
+// debugger_ui.cpu.bus.write16(PC_INIT_ADDR, program_start);
+
+// let program: Vec<u8> = vec![
+//     // Initialize A to 0
+//     0xA9, 0, // LDA #0
+//     // Set X to 0x0000 + 0
+//     0xA2, 0, // LDX #0
+//     // [0, ...]
+//     //  ^
+//     0x95, 0x00, // STA #0
+//     // Set A to 1
+//     0xA9, 1, // LDA #1
+//     // [0, 1, ...]
+//     //     ^
+//     0x95, 0x01, // STA #1
+//     //
+//     // LOOP:
+//     //
+//     // A = A + RAM[X]
+//     0x75, 0x00, // ADC $00,X
+//     // RAM[X + 2] = A
+//     0x95, 0x02, // STA $02,X
+//     // Increment X
+//     0xE8, // INX
+//     // JMP Loop
+//     0x4C, 10, 0x80,
+// ];
+// let mut offset: u16 = 0;
+// for byte in &program {
+//     debugger_ui.cpu.bus.write(program_start + offset, *byte);
+//     offset += 1;
+// }
+
+// debugger_ui.cpu.sig_reset();
+// debugger_ui.cpu.step();
+
+impl Game for NESDebugger {
     type Input = CPUDebuggerInput; // No input data
     type LoadingScreen = (); // No loading screen
 
-    fn load(_window: &Window) -> Task<CPUDebugger> {
+    fn load(_window: &Window) -> Task<NESDebugger> {
         // Load your game assets here. Check out the `load` module!
         Task::succeed(|| {
             let cart = match Cart::from_file("src/test_fixtures/nestest.nes") {
@@ -49,7 +98,9 @@ impl Game for CPUDebugger {
                 Err(msg) => panic!(msg),
             };
 
-            let mut debugger_ui = CPUDebugger {
+            let mut debugger_ui = NESDebugger {
+                screen: [0x5F; SCREEN_W * SCREEN_H],
+                img: None,
                 cpu: Processor::new(Bus::new(vec![
                     // Cartridge
                     Box::new(cart),
@@ -68,41 +119,6 @@ impl Game for CPUDebugger {
                 ])),
             };
 
-            // let program_start: u16 = 0x8000;
-
-            // debugger_ui.cpu.bus.write16(PC_INIT_ADDR, program_start);
-
-            // let program: Vec<u8> = vec![
-            //     // Initialize A to 0
-            //     0xA9, 0, // LDA #0
-            //     // Set X to 0x0000 + 0
-            //     0xA2, 0, // LDX #0
-            //     // [0, ...]
-            //     //  ^
-            //     0x95, 0x00, // STA #0
-            //     // Set A to 1
-            //     0xA9, 1, // LDA #1
-            //     // [0, 1, ...]
-            //     //     ^
-            //     0x95, 0x01, // STA #1
-            //     //
-            //     // LOOP:
-            //     //
-            //     // A = A + RAM[X]
-            //     0x75, 0x00, // ADC $00,X
-            //     // RAM[X + 2] = A
-            //     0x95, 0x02, // STA $02,X
-            //     // Increment X
-            //     0xE8, // INX
-            //     // JMP Loop
-            //     0x4C, 10, 0x80,
-            // ];
-            // let mut offset: u16 = 0;
-            // for byte in &program {
-            //     debugger_ui.cpu.bus.write(program_start + offset, *byte);
-            //     offset += 1;
-            // }
-
             debugger_ui.cpu.sig_reset();
             debugger_ui.cpu.step();
 
@@ -118,11 +134,9 @@ impl Game for CPUDebugger {
             b: 0.6,
             a: 1.0,
         });
-
-        // Draw your game here. Check out the `graphics` module!
     }
 
-    fn interact(&mut self, input: &mut CPUDebuggerInput, _window: &mut Window) {
+    fn interact(&mut self, input: &mut CPUDebuggerInput, window: &mut Window) {
         for keypress in &input.keypresses {
             let key = format!("{:?}", keypress);
             if key == "Space" {
@@ -133,6 +147,9 @@ impl Game for CPUDebugger {
         }
 
         input.keypresses.clear();
+
+        // Update the screen image:
+        self.img = Some(from_screen(window.gpu(), &self.screen).unwrap());
     }
 }
 
@@ -152,7 +169,7 @@ const INACTIVE_COLOR: Color = Color {
     a: 0.5,
 };
 
-impl UserInterface for CPUDebugger {
+impl UserInterface for NESDebugger {
     type Message = Message;
     type Renderer = Renderer;
     fn react(&mut self, _event: Message, _window: &mut Window) {
@@ -186,11 +203,10 @@ impl UserInterface for CPUDebugger {
         }
 
         let left_pane = Column::new()
-            .width((window.width() * 0.75) as u32)
-            .push(Text::new("---").size(32))
-            .push(Text::new(&stack_str).size(32))
-            .push(Text::new("---").size(32))
-            .push(Text::new(&ram_str).size(32));
+            .push(Text::new("---").size(30))
+            .push(Text::new(&stack_str).size(30))
+            .push(Text::new("---").size(30))
+            .push(Text::new(&ram_str).size(30));
 
         let mut program: Vec<u8> = vec![];
         let program_start = self.cpu.bus.read16(PC_INIT_ADDR);
@@ -223,46 +239,47 @@ impl UserInterface for CPUDebugger {
             .min(disassembled_output.len() as i32) as usize;
         let disassembled_output = &disassembled_output[start..end];
 
-        let right_pane = Column::new()
+        let center_pane = Column::new()
+            .width(400)
             .push(
                 Row::new()
-                    .push(Text::new("Status:").size(32))
-                    .push(Text::new("C").size(32).color(
+                    .push(Text::new("Status:").size(30))
+                    .push(Text::new("C").size(30).color(
                         if self.cpu.get_status(StatusFlag::Carry) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
-                    .push(Text::new("Z").size(32).color(
+                    .push(Text::new("Z").size(30).color(
                         if self.cpu.get_status(StatusFlag::Zero) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
-                    .push(Text::new("I").size(32).color(
+                    .push(Text::new("I").size(30).color(
                         if self.cpu.get_status(StatusFlag::DisableInterrupts) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
-                    .push(Text::new("B").size(32).color(
+                    .push(Text::new("B").size(30).color(
                         if self.cpu.get_status(StatusFlag::Break) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
-                    .push(Text::new("O").size(32).color(
+                    .push(Text::new("O").size(30).color(
                         if self.cpu.get_status(StatusFlag::Overflow) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
-                    .push(Text::new("N").size(32).color(
+                    .push(Text::new("N").size(30).color(
                         if self.cpu.get_status(StatusFlag::Negative) != 0x00 {
                             ACTIVE_COLOR
                         } else {
@@ -270,21 +287,24 @@ impl UserInterface for CPUDebugger {
                         },
                     )),
             )
-            .push(Text::new(&format!("PC: {:04X} -", self.cpu.pc)).size(32))
-            .push(Text::new(&format!(" A: {:02X} ({})", self.cpu.a, self.cpu.a)).size(32))
-            .push(Text::new(&format!(" X: {:02X} ({})", self.cpu.x, self.cpu.x)).size(32))
-            .push(Text::new(&format!(" Y: {:02X} ({})", self.cpu.y, self.cpu.y)).size(32))
-            .push(Text::new("---".into()).size(32))
-            .push(Text::new(&disassembled_output.join("\n")).size(32));
-
-        Row::new()
+            .push(Text::new(&format!("PC: {:04X} -", self.cpu.pc)).size(30))
+            .push(Text::new(&format!(" A: {:02X} ({})", self.cpu.a, self.cpu.a)).size(30))
+            .push(Text::new(&format!(" X: {:02X} ({})", self.cpu.x, self.cpu.x)).size(30))
+            .push(Text::new(&format!(" Y: {:02X} ({})", self.cpu.y, self.cpu.y)).size(30))
+            .push(Text::new("---".into()).size(30))
+            .push(Text::new(&disassembled_output.join("\n")).size(30));
+        let ui = Row::new()
             .padding(16)
             .spacing(16)
             .width(window.width() as u32)
             .height(window.height() as u32)
             .push(left_pane)
-            .push(right_pane)
-            .into()
+            .push(center_pane);
+
+        match &self.img {
+            Some(img) => ui.push(Image::new(&img)).into(),
+            None => ui.into(),
+        }
     }
 }
 
@@ -311,4 +331,27 @@ impl Input for CPUDebuggerInput {
         }
     }
     fn clear(&mut self) {}
+}
+
+fn from_screen(
+    gpu: &mut Gpu,
+    screen: &[u8; SCREEN_W * SCREEN_H],
+) -> Result<coffee::graphics::Image> {
+    let colors: Vec<[u8; 4]> = screen
+        .iter()
+        // For now, we just plop the pixel
+        .map(|color| [*color, *color, *color, 255])
+        .collect();
+
+    coffee::graphics::Image::from_image(
+        gpu,
+        &image::DynamicImage::ImageRgba8(
+            image::RgbaImage::from_raw(
+                SCREEN_W as u32,
+                SCREEN_H as u32,
+                colors.iter().flatten().cloned().collect(),
+            )
+            .unwrap(),
+        ),
+    )
 }

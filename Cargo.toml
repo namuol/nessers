@@ -10,6 +10,9 @@ edition = "2018"
 coffee = { version = "0.4.1", features = ["opengl"] }
 lazy_static = "1.4.0"
 maplit = "1.0.2"
+# Copied directly from Cargo.lock - is there a way to reference
+# sub-dependencies, or auto-resolve a version based on what's in Cargo.lock?
+image = "0.21.3"
 
 # [profile.dev]
 # opt-level = 2
