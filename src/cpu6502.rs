@@ -2120,7 +2120,7 @@ mod tests {
 
   #[test]
   fn get_status() {
-    let mut cpu = Processor::new(Bus::new(vec![Box::new(DummyBus {})]));
+    let mut cpu = Processor::new(Bus::new(vec![Rc::new(DummyBus {})]));
 
     for flag in &ALL_FLAGS {
       assert_eq!(cpu.get_status(*flag), 0b0000);
