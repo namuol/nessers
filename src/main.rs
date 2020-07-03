@@ -14,14 +14,13 @@ pub mod cart;
 pub mod cpu6502;
 pub mod disassemble;
 pub mod mirror;
+pub mod nes;
+pub mod ppu;
 pub mod ram;
 
-use crate::bus::Bus;
-use crate::cart::Cart;
-use crate::cpu6502::{Processor, StatusFlag, PC_INIT_ADDR, STACK_SIZE};
+use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;
-use crate::mirror::Mirror;
-use crate::ram::Ram;
+use crate::nes::Nes;
 
 fn main() -> Result<()> {
     <NESDebugger as UserInterface>::run(WindowSettings {
@@ -39,7 +38,7 @@ const SCREEN_H: usize = 240;
 struct NESDebugger {
     screen: [u8; SCREEN_W * SCREEN_H],
     img: Option<coffee::graphics::Image>,
-    cpu: Processor,
+    nes: Nes,
 }
 
 // Fibonacci sequence program:
@@ -50,7 +49,7 @@ struct NESDebugger {
 
 // let program_start: u16 = 0x8000;
 
-// debugger_ui.cpu.bus.write16(PC_INIT_ADDR, program_start);
+// debugger_ui.nes.cpu.bus.write16(PC_INIT_ADDR, program_start);
 
 // let program: Vec<u8> = vec![
 //     // Initialize A to 0
@@ -79,12 +78,12 @@ struct NESDebugger {
 // ];
 // let mut offset: u16 = 0;
 // for byte in &program {
-//     debugger_ui.cpu.bus.write(program_start + offset, *byte);
+//     debugger_ui.nes.cpu.bus.write(program_start + offset, *byte);
 //     offset += 1;
 // }
 
-// debugger_ui.cpu.sig_reset();
-// debugger_ui.cpu.step();
+// debugger_ui.nes.cpu.sig_reset();
+// debugger_ui.nes.cpu.step();
 
 impl Game for NESDebugger {
     type Input = CPUDebuggerInput; // No input data
@@ -93,34 +92,19 @@ impl Game for NESDebugger {
     fn load(_window: &Window) -> Task<NESDebugger> {
         // Load your game assets here. Check out the `load` module!
         Task::succeed(|| {
-            let cart = match Cart::from_file("src/test_fixtures/nestest.nes") {
-                Ok(c) => c,
+            let nes = match Nes::new("src/test_fixtures/nestest.nes") {
+                Ok(n) => n,
                 Err(msg) => panic!(msg),
             };
 
             let mut debugger_ui = NESDebugger {
                 screen: [0x5F; SCREEN_W * SCREEN_H],
                 img: None,
-                cpu: Processor::new(Bus::new(vec![
-                    // Cartridge
-                    Box::new(cart),
-                    // 2K internal RAM, mirrored to 8K
-                    Box::new(Mirror::new(
-                        0x0000,
-                        Box::new(Ram::new(0x0000, 2 * 1024)),
-                        8 * 1024,
-                    )),
-                    // PPU Registers, mirrored for 8K
-                    Box::new(Mirror::new(0x2000, Box::new(Ram::new(0x2000, 8)), 8 * 1024)),
-                    // APU & I/O Registers
-                    Box::new(Ram::new(0x4000, 0x18)),
-                    // APU & I/O functionality that is normally disabled
-                    Box::new(Ram::new(0x4018, 0x08)),
-                ])),
+                nes,
             };
 
-            debugger_ui.cpu.sig_reset();
-            debugger_ui.cpu.step();
+            debugger_ui.nes.cpu.sig_reset();
+            debugger_ui.nes.cpu.step();
 
             debugger_ui
         })
@@ -140,9 +124,9 @@ impl Game for NESDebugger {
         for keypress in &input.keypresses {
             let key = format!("{:?}", keypress);
             if key == "Space" {
-                self.cpu.step();
+                self.nes.cpu.step();
             } else if key == "R" {
-                self.cpu.sig_reset();
+                self.nes.cpu.sig_reset();
             }
         }
 
@@ -181,22 +165,22 @@ impl UserInterface for NESDebugger {
             let addr = 0 as u16 + (page as u16) * 16;
             stack_str.push_str(&format!("{:04X}: ", addr));
             for offset in 0..16 {
-                stack_str.push_str(&format!("{:02X} ", self.cpu.bus.read(addr + offset)));
+                stack_str.push_str(&format!("{:02X} ", self.nes.cpu.bus.read(addr + offset)));
             }
             stack_str.push_str("\n");
         }
 
-        let first_pc_page = (self.cpu.pc / 16) as u16;
+        let first_pc_page = (self.nes.cpu.pc / 16) as u16;
         let mut ram_str = String::new();
         for page in 0..(STACK_SIZE / 16) {
             let addr = ((first_pc_page + page as u16) as u16) * 16;
             ram_str.push_str(&format!("{:04X}: ", addr));
             for offset in 0..16 {
                 let addr = addr + offset;
-                if addr == self.cpu.pc {
-                    ram_str.push_str(&format!("{:02X}<", self.cpu.bus.read(addr)));
+                if addr == self.nes.cpu.pc {
+                    ram_str.push_str(&format!("{:02X}<", self.nes.cpu.bus.read(addr)));
                 } else {
-                    ram_str.push_str(&format!("{:02X} ", self.cpu.bus.read(addr)));
+                    ram_str.push_str(&format!("{:02X} ", self.nes.cpu.bus.read(addr)));
                 }
             }
             ram_str.push_str("\n");
@@ -209,10 +193,10 @@ impl UserInterface for NESDebugger {
             .push(Text::new(&ram_str).size(30));
 
         let mut program: Vec<u8> = vec![];
-        let program_start = self.cpu.bus.read16(PC_INIT_ADDR);
+        let program_start = self.nes.cpu.bus.read16(PC_INIT_ADDR);
         let mut pc = program_start;
-        while pc < self.cpu.pc + 128 {
-            program.push(self.cpu.bus.read(pc));
+        while pc < self.nes.cpu.pc + 128 {
+            program.push(self.nes.cpu.bus.read(pc));
             pc += 1;
         }
         let disassembled = disassemble(&program);
@@ -220,7 +204,7 @@ impl UserInterface for NESDebugger {
         let mut pc_idx: i32 = 0;
         let mut idx: i32 = 0;
         for o in disassembled {
-            let current = self.cpu.pc == program_start + o.offset;
+            let current = self.nes.cpu.pc == program_start + o.offset;
             if current {
                 pc_idx = idx;
             }
@@ -245,52 +229,52 @@ impl UserInterface for NESDebugger {
                 Row::new()
                     .push(Text::new("Status:").size(30))
                     .push(Text::new("C").size(30).color(
-                        if self.cpu.get_status(StatusFlag::Carry) != 0x00 {
+                        if self.nes.cpu.get_status(StatusFlag::Carry) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
                     .push(Text::new("Z").size(30).color(
-                        if self.cpu.get_status(StatusFlag::Zero) != 0x00 {
+                        if self.nes.cpu.get_status(StatusFlag::Zero) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
                     .push(Text::new("I").size(30).color(
-                        if self.cpu.get_status(StatusFlag::DisableInterrupts) != 0x00 {
+                        if self.nes.cpu.get_status(StatusFlag::DisableInterrupts) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
                     .push(Text::new("B").size(30).color(
-                        if self.cpu.get_status(StatusFlag::Break) != 0x00 {
+                        if self.nes.cpu.get_status(StatusFlag::Break) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
                     .push(Text::new("O").size(30).color(
-                        if self.cpu.get_status(StatusFlag::Overflow) != 0x00 {
+                        if self.nes.cpu.get_status(StatusFlag::Overflow) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     ))
                     .push(Text::new("N").size(30).color(
-                        if self.cpu.get_status(StatusFlag::Negative) != 0x00 {
+                        if self.nes.cpu.get_status(StatusFlag::Negative) != 0x00 {
                             ACTIVE_COLOR
                         } else {
                             INACTIVE_COLOR
                         },
                     )),
             )
-            .push(Text::new(&format!("PC: {:04X} -", self.cpu.pc)).size(30))
-            .push(Text::new(&format!(" A: {:02X} ({})", self.cpu.a, self.cpu.a)).size(30))
-            .push(Text::new(&format!(" X: {:02X} ({})", self.cpu.x, self.cpu.x)).size(30))
-            .push(Text::new(&format!(" Y: {:02X} ({})", self.cpu.y, self.cpu.y)).size(30))
+            .push(Text::new(&format!("PC: {:04X} -", self.nes.cpu.pc)).size(30))
+            .push(Text::new(&format!(" A: {:02X} ({})", self.nes.cpu.a, self.nes.cpu.a)).size(30))
+            .push(Text::new(&format!(" X: {:02X} ({})", self.nes.cpu.x, self.nes.cpu.x)).size(30))
+            .push(Text::new(&format!(" Y: {:02X} ({})", self.nes.cpu.y, self.nes.cpu.y)).size(30))
             .push(Text::new("---".into()).size(30))
             .push(Text::new(&disassembled_output.join("\n")).size(30));
         let ui = Row::new()
