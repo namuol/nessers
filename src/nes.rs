@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use crate::bus::Bus;
 use crate::cart::Cart;
 use crate::cpu6502::Processor;
@@ -6,8 +8,9 @@ use crate::ppu::Ppu;
 use crate::ram::Ram;
 
 pub struct Nes {
+  tick: u8,
   pub cpu: Processor,
-  pub ppu: Ppu,
+  pub ppu: Rc<Ppu>,
 }
 
 impl Nes {
@@ -17,24 +20,32 @@ impl Nes {
       Err(msg) => return Err(msg),
     };
 
+    let ppu = Rc::new(Ppu::new());
+    let bus_ppu = Rc::clone(&ppu);
+
     Ok(Nes {
-      ppu: Ppu::new(),
+      tick: 0,
+      ppu,
       cpu: Processor::new(Bus::new(vec![
         // Cartridge
-        Box::new(cart),
+        Rc::new(cart),
         // 2K internal RAM, mirrored to 8K
-        Box::new(Mirror::new(
+        Rc::new(Mirror::new(
           0x0000,
-          Box::new(Ram::new(0x0000, 2 * 1024)),
+          Rc::new(Ram::new(0x0000, 2 * 1024)),
           8 * 1024,
         )),
         // PPU Registers, mirrored for 8K
-        Box::new(Mirror::new(0x2000, Box::new(Ram::new(0x2000, 8)), 8 * 1024)),
+        Rc::new(Mirror::new(0x2000, bus_ppu, 8 * 1024)),
         // APU & I/O Registers
-        Box::new(Ram::new(0x4000, 0x18)),
+        Rc::new(Ram::new(0x4000, 0x18)),
         // APU & I/O functionality that is normally disabled
-        Box::new(Ram::new(0x4018, 0x08)),
+        Rc::new(Ram::new(0x4018, 0x08)),
       ])),
     })
+  }
+
+  pub fn clock(&mut self) {
+    self.tick += 1;
   }
 }

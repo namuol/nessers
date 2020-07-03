@@ -2091,6 +2091,8 @@ impl From<u8> for &Operation {
 
 #[cfg(test)]
 mod tests {
+  use std::rc::Rc;
+
   use super::*;
   use crate::bus_device::BusDevice;
   use crate::ram::Ram;
@@ -2140,7 +2142,7 @@ mod tests {
 
   #[test]
   fn set_status() {
-    let mut cpu = Processor::new(Bus::new(vec![Box::new(DummyBus {})]));
+    let mut cpu = Processor::new(Bus::new(vec![Rc::new(DummyBus {})]));
 
     for flag in &ALL_FLAGS {
       let flag = *flag;
@@ -2154,7 +2156,7 @@ mod tests {
 
   #[test]
   fn simple_and() {
-    let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(0x0000, 64 * 1024))]));
+    let mut cpu = Processor::new(Bus::new(vec![Rc::new(Ram::new(0x0000, 64 * 1024))]));
     let program_start: u16 = 0x8000;
 
     cpu.bus.write16(PC_INIT_ADDR, program_start);
@@ -2180,7 +2182,7 @@ mod tests {
   fn simple_ora() {
     let ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = 0x8000;
-    let mut cpu = Processor::new(Bus::new(vec![Box::new(ram)]));
+    let mut cpu = Processor::new(Bus::new(vec![Rc::new(ram)]));
     cpu.bus.write16(PC_INIT_ADDR, program_start);
 
     cpu.bus.write(program_start, 0x09); // ORA - Immediate
@@ -2204,7 +2206,7 @@ mod tests {
     let ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = 0x8000;
 
-    let mut cpu = Processor::new(Bus::new(vec![Box::new(ram)]));
+    let mut cpu = Processor::new(Bus::new(vec![Rc::new(ram)]));
     cpu.bus.write16(PC_INIT_ADDR, program_start);
 
     cpu.bus.write(program_start + 0, 0x49); // EOR - Immediate
@@ -2336,7 +2338,7 @@ mod tests {
 
     for test in tests {
       let program_start: u16 = 0x8000;
-      let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(0x0000, 64 * 1024))]));
+      let mut cpu = Processor::new(Bus::new(vec![Rc::new(Ram::new(0x0000, 64 * 1024))]));
 
       cpu.bus.write16(PC_INIT_ADDR, program_start);
       #[rustfmt::skip]
@@ -2465,7 +2467,7 @@ mod tests {
 
     for test in tests {
       let program_start: u16 = 0x8000;
-      let mut cpu = Processor::new(Bus::new(vec![Box::new(Ram::new(0x0000, 64 * 1024))]));
+      let mut cpu = Processor::new(Bus::new(vec![Rc::new(Ram::new(0x0000, 64 * 1024))]));
 
       cpu.bus.write16(PC_INIT_ADDR, program_start);
       #[rustfmt::skip]

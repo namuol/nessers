@@ -1,3 +1,4 @@
+use crate::bus_device::{BusDevice, BusDeviceRange};
 
 pub struct Ppu {
   /// The current row number on the screen
@@ -32,5 +33,25 @@ impl Ppu {
         self.frame_complete = true;
       }
     }
+  }
+}
+
+// CPU can Read/Write to PPU registers, which are 8 bytes that start at 0x2000
+impl BusDeviceRange for Ppu {
+  fn start(&self) -> u16 {
+    0x2000
+  }
+  fn size(&self) -> usize {
+    8
+  }
+}
+
+// Not sure how to implement this yet 😅
+impl BusDevice for Ppu {
+  fn read(&self, _addr: u16) -> std::option::Option<u8> {
+    todo!()
+  }
+  fn write(&mut self, _addr: u16, _data: u8) -> std::option::Option<()> {
+    todo!()
   }
 }

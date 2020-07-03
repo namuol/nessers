@@ -1,11 +1,14 @@
+use std::rc::Rc;
+
 use crate::bus_device::BusDevice;
+type DeviceList = Vec<Rc<dyn BusDevice>>;
 
 pub struct Bus {
-  pub devices: Vec<Box<dyn BusDevice>>,
+  pub devices: DeviceList,
 }
 
 impl Bus {
-  pub fn new(devices: Vec<Box<dyn BusDevice>>) -> Self {
+  pub fn new(devices: DeviceList) -> Self {
     Bus { devices }
   }
 
@@ -13,7 +16,8 @@ impl Bus {
 
   pub fn write(&mut self, addr: u16, data: u8) {
     for device in &mut self.devices {
-      match device.write(addr, data) {
+      // FIXME: We probably want to use RefCell here:
+      match Rc::get_mut(device).unwrap().write(addr, data) {
         None => (),
         Some(_) => {
           break;
