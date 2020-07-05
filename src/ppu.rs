@@ -1,23 +1,45 @@
 use crate::bus_device::{BusDevice, BusDeviceRange};
 
+pub const SCREEN_W: usize = 256;
+pub const SCREEN_H: usize = 240;
+
 pub struct Ppu {
   /// The current row number on the screen
-  scanline: i16,
+  scanline: isize,
   /// The current pixel number on the current scanline
-  cycle: u16,
-  frame_complete: bool,
+  cycle: isize,
+  pub frame_complete: bool,
+  pub screen: [[u8; 4]; SCREEN_W * SCREEN_H],
 }
 
 impl Ppu {
   pub fn new() -> Ppu {
     Ppu {
-      scanline: -1,
+      scanline: 0,
       cycle: 0,
       frame_complete: false,
+      screen: [[0x00, 0x00, 0x00, 0xFF]; SCREEN_W * SCREEN_H],
     }
   }
 
   pub fn clock(&mut self) {
+    if self.frame_complete {
+      self.frame_complete = false;
+    }
+
+    let screen_x = self.cycle - 1;
+    let screen_y = self.scanline;
+    if screen_x >= 0
+      && screen_y >= 0
+      && screen_x < (SCREEN_W as isize)
+      && screen_y < (SCREEN_H as isize)
+    {
+      let idx = (screen_y as usize) * SCREEN_W + (screen_x as usize);
+      self.screen[idx][0] = 0xFF;
+      self.screen[idx][1] = 0xFF;
+      self.screen[idx][2] = 0xFF;
+    }
+
     // Move right one pixel...
     self.cycle += 1;
     // ...and if we're at the end of the scanline...

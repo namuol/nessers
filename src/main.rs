@@ -21,6 +21,7 @@ pub mod ram;
 use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;
 use crate::nes::Nes;
+use crate::ppu::{SCREEN_H, SCREEN_W};
 
 fn main() -> Result<()> {
     <NESDebugger as UserInterface>::run(WindowSettings {
@@ -32,11 +33,7 @@ fn main() -> Result<()> {
     })
 }
 
-const SCREEN_W: usize = 256;
-const SCREEN_H: usize = 240;
-
 struct NESDebugger {
-    screen: [u8; SCREEN_W * SCREEN_H],
     img: Option<coffee::graphics::Image>,
     nes: Nes,
 }
@@ -97,14 +94,10 @@ impl Game for NESDebugger {
                 Err(msg) => panic!(msg),
             };
 
-            let mut debugger_ui = NESDebugger {
-                screen: [0x5F; SCREEN_W * SCREEN_H],
-                img: None,
-                nes,
-            };
+            let mut debugger_ui = NESDebugger { img: None, nes };
 
             debugger_ui.nes.cpu.sig_reset();
-            debugger_ui.nes.cpu.step();
+            debugger_ui.nes.step();
 
             debugger_ui
         })
@@ -124,16 +117,18 @@ impl Game for NESDebugger {
         for keypress in &input.keypresses {
             let key = format!("{:?}", keypress);
             if key == "Space" {
-                self.nes.cpu.step();
+                self.nes.step();
             } else if key == "R" {
                 self.nes.cpu.sig_reset();
+            } else if key == "F" {
+                self.nes.frame();
             }
         }
 
         input.keypresses.clear();
 
         // Update the screen image:
-        self.img = Some(from_screen(window.gpu(), &self.screen).unwrap());
+        self.img = Some(from_screen(window.gpu(), &self.nes.ppu.screen).unwrap());
     }
 }
 
@@ -319,12 +314,12 @@ impl Input for CPUDebuggerInput {
 
 fn from_screen(
     gpu: &mut Gpu,
-    screen: &[u8; SCREEN_W * SCREEN_H],
+    screen: &[[u8; 4]; SCREEN_W * SCREEN_H],
 ) -> Result<coffee::graphics::Image> {
     let colors: Vec<[u8; 4]> = screen
         .iter()
         // For now, we just plop the pixel
-        .map(|color| [*color, *color, *color, 255])
+        .map(|color| *color)
         .collect();
 
     coffee::graphics::Image::from_image(

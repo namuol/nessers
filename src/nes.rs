@@ -8,7 +8,7 @@ use crate::ppu::Ppu;
 use crate::ram::Ram;
 
 pub struct Nes {
-  tick: u8,
+  tick: u64,
   pub cpu: Processor,
   pub ppu: Rc<Ppu>,
 }
@@ -21,7 +21,8 @@ impl Nes {
     };
 
     let ppu = Rc::new(Ppu::new());
-    let bus_ppu = Rc::clone(&ppu);
+    // let bus_ppu = Rc::clone(&ppu);
+    let bus_ppu = Rc::new(Ram::new(0x2000, 8));
 
     Ok(Nes {
       tick: 0,
@@ -46,6 +47,28 @@ impl Nes {
   }
 
   pub fn clock(&mut self) {
+    Rc::get_mut(&mut self.ppu).unwrap().clock();
+    if self.tick % 3 == 0 {
+      self.cpu.clock();
+    }
     self.tick += 1;
+  }
+
+  pub fn step(&mut self) {
+    loop {
+      self.clock();
+      if self.tick % 3 == 1 && self.cpu.cycles_left == 0 {
+        return;
+      }
+    }
+  }
+
+  pub fn frame(&mut self) {
+    loop {
+      self.clock();
+      if self.ppu.frame_complete == true {
+        return;
+      }
+    }
   }
 }

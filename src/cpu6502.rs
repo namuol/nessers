@@ -37,7 +37,7 @@ pub struct Processor {
   pub pc: u16,
 
   /// The numbers of cycles remaining for the current operation
-  cycles_left: u8,
+  pub cycles_left: u8,
 }
 
 pub const STACK_START: u16 = 0x0100;
@@ -79,7 +79,7 @@ impl Processor {
 
   pub fn step(&mut self) {
     loop {
-      self.sig_clock();
+      self.clock();
       if self.cycles_left == 0 {
         return;
       }
@@ -97,8 +97,7 @@ impl Processor {
     data
   }
 
-  // SIGNALS:
-  pub fn sig_clock(&mut self) {
+  pub fn clock(&mut self) {
     if self.cycles_left == 0 {
       let opcode = self.bus.read(self.pc);
       self.pc += 1;
@@ -191,6 +190,7 @@ impl Processor {
     self.cycles_left -= 1;
   }
 
+  // SIGNALS:
   pub fn sig_reset(&mut self) {
     self.a = 0x00;
     self.x = 0x00;
