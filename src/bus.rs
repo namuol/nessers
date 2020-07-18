@@ -1,6 +1,13 @@
 use std::rc::Rc;
 
 use crate::bus_device::BusDevice;
+
+/// A list of bus devices, in order of "priority". The order of devices does
+/// **not** represent where the device lives in address space.
+///
+/// When performing a read or write, devices are accessed in the order supplied
+/// in this list. When a device returns `Some` from a `read`/`write`, it now
+/// owns that operation, and all devices after it in the list are ignored.
 type DeviceList = Vec<Rc<dyn BusDevice>>;
 
 pub struct Bus {
