@@ -1,4 +1,7 @@
+use rand::Rng;
+
 use crate::bus_device::{BusDevice, BusDeviceRange};
+use crate::palette::Palette;
 
 pub const SCREEN_W: usize = 256;
 pub const SCREEN_H: usize = 240;
@@ -8,16 +11,18 @@ pub struct Ppu {
   scanline: isize,
   /// The current pixel number on the current scanline
   cycle: isize,
+  palette: Palette,
   pub frame_complete: bool,
   pub screen: [[u8; 4]; SCREEN_W * SCREEN_H],
 }
 
 impl Ppu {
-  pub fn new() -> Ppu {
+  pub fn new(palette: Palette) -> Ppu {
     Ppu {
       scanline: 0,
       cycle: 0,
       frame_complete: false,
+      palette,
       screen: [[0x00, 0x00, 0x00, 0xFF]; SCREEN_W * SCREEN_H],
     }
   }
@@ -27,6 +32,8 @@ impl Ppu {
       self.frame_complete = false;
     }
 
+    let mut rng = rand::thread_rng();
+
     let screen_x = self.cycle - 1;
     let screen_y = self.scanline;
     if screen_x >= 0
@@ -35,9 +42,10 @@ impl Ppu {
       && screen_y < (SCREEN_H as isize)
     {
       let idx = (screen_y as usize) * SCREEN_W + (screen_x as usize);
-      self.screen[idx][0] = 0xFF;
-      self.screen[idx][1] = 0xFF;
-      self.screen[idx][2] = 0xFF;
+      let color = self.palette.colors[rng.gen_range(0, 64)];
+      self.screen[idx][0] = color.r;
+      self.screen[idx][1] = color.g;
+      self.screen[idx][2] = color.b;
     }
 
     // Move right one pixel...

@@ -1,4 +1,4 @@
-use crate::bus::{read, read16, write, write16, DeviceList};
+use crate::bus::{read, read16, write, DeviceList};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
@@ -2089,7 +2089,7 @@ impl From<u8> for &Operation {
 
 #[cfg(test)]
 mod tests {
-  use std::rc::Rc;
+  use crate::bus::write16;
 
   use super::*;
   use crate::bus_device::BusDevice;

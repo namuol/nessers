@@ -2,6 +2,7 @@ use crate::bus::DeviceList;
 use crate::cart::Cart;
 use crate::cpu6502::Processor;
 use crate::mirror::Mirror;
+use crate::palette::Palette;
 use crate::ppu::Ppu;
 use crate::ram::Ram;
 
@@ -13,13 +14,17 @@ pub struct Nes {
 }
 
 impl Nes {
-  pub fn new(cart_filename: &str) -> Result<Nes, &'static str> {
+  pub fn new(cart_filename: &str, palette_filename: &str) -> Result<Nes, &'static str> {
     let cart = match Cart::from_file(cart_filename) {
       Ok(c) => c,
       Err(msg) => return Err(msg),
     };
 
-    let ppu = Ppu::new();
+    let ppu = match Palette::from_file(palette_filename) {
+      Ok(palette) => Ppu::new(palette),
+      Err(msg) => return Err(msg),
+    };
+
     let ppu_registers = Box::new(Ram::new(0x2000, 8));
 
     let devices: DeviceList = vec![

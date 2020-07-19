@@ -15,10 +15,11 @@ pub mod cpu6502;
 pub mod disassemble;
 pub mod mirror;
 pub mod nes;
+pub mod palette;
 pub mod ppu;
 pub mod ram;
 
-use crate::bus::{read, read16, write, write16};
+use crate::bus::{read, read16};
 use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;
 use crate::nes::Nes;
@@ -90,7 +91,10 @@ impl Game for NESDebugger {
     fn load(_window: &Window) -> Task<NESDebugger> {
         // Load your game assets here. Check out the `load` module!
         Task::succeed(|| {
-            let nes = match Nes::new("src/test_fixtures/nestest.nes") {
+            let nes = match Nes::new(
+                "src/test_fixtures/nestest.nes",
+                "src/test_fixtures/ntscpalette.pal",
+            ) {
                 Ok(n) => n,
                 Err(msg) => panic!(msg),
             };

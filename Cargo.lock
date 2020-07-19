@@ -1076,6 +1076,7 @@ dependencies = [
  "image",
  "lazy_static",
  "maplit",
+ "rand 0.7.3",
 ]
 
 [[package]]
