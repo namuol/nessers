@@ -1,4 +1,4 @@
-use crate::bus::Bus;
+use crate::bus::{read, read16, write, write16, DeviceList};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 
@@ -21,8 +21,6 @@ pub enum StatusFlag {
 use StatusFlag::*;
 
 pub struct Processor {
-  pub bus: Bus,
-
   /// Processor Status
   pub status: u8,
   /// Accumulator
@@ -50,9 +48,8 @@ const IRQ_POINTER: u16 = 0xFFFE;
 const NMI_POINTER: u16 = 0xFFFA;
 
 impl Processor {
-  pub fn new(bus: Bus) -> Processor {
+  pub fn new() -> Processor {
     Processor {
-      bus,
       status: 0,
       a: 0,
       x: 0,
@@ -77,29 +74,29 @@ impl Processor {
     }
   }
 
-  pub fn step(&mut self) {
+  pub fn step(&mut self, devices: &mut DeviceList) {
     loop {
-      self.clock();
+      self.clock(devices);
       if self.cycles_left == 0 {
         return;
       }
     }
   }
 
-  fn push(&mut self, data: u8) {
-    self.bus.write(STACK_START + (self.s as u16), data);
+  fn push(&mut self, devices: &mut DeviceList, data: u8) {
+    write(devices, STACK_START + (self.s as u16), data);
     self.s -= 1;
   }
 
-  fn pull(&mut self) -> u8 {
-    let data = self.bus.read(STACK_START + (self.s as u16));
+  fn pull(&mut self, devices: &DeviceList) -> u8 {
+    let data = read(devices, STACK_START + (self.s as u16));
     self.s += 1;
     data
   }
 
-  pub fn clock(&mut self) {
+  pub fn clock(&mut self, devices: &mut DeviceList) {
     if self.cycles_left == 0 {
-      let opcode = self.bus.read(self.pc);
+      let opcode = read(devices, self.pc);
       self.pc += 1;
 
       let operation: &Operation = opcode.into();
@@ -121,7 +118,7 @@ impl Processor {
         ACC => acc,
         REL => rel,
       };
-      let address_mode_result = addressing_mode(self);
+      let address_mode_result = addressing_mode(self, devices);
       let instruction: InstructionImplementation = match operation.instruction {
         ADC => adc,
         AND => and,
@@ -180,7 +177,7 @@ impl Processor {
         TXS => txs,
         TYA => tya,
       };
-      let instruction_result = instruction(self, &address_mode_result.data);
+      let instruction_result = instruction(self, devices, &address_mode_result.data);
 
       if address_mode_result.needs_extra_cycle && instruction_result.may_need_extra_cycle {
         self.cycles_left += 1;
@@ -191,43 +188,43 @@ impl Processor {
   }
 
   // SIGNALS:
-  pub fn sig_reset(&mut self) {
+  pub fn sig_reset(&mut self, devices: &DeviceList) {
     self.a = 0x00;
     self.x = 0x00;
     self.y = 0x00;
     self.s = STACK_SIZE;
     self.status = 0x00 | (StatusFlag::Unused as u8);
-    self.pc = self.bus.read16(PC_INIT_ADDR);
+    self.pc = read16(devices, PC_INIT_ADDR);
 
     self.cycles_left = 8;
   }
 
-  pub fn sig_irq(&mut self) {
+  pub fn sig_irq(&mut self, devices: &mut DeviceList) {
     if self.get_status(StatusFlag::DisableInterrupts) != 0x00 {
       let pc_hi: u8 = (self.pc >> 8) as u8;
-      self.push(pc_hi);
+      self.push(devices, pc_hi);
       let pc_lo: u8 = (self.pc << 8) as u8;
-      self.push(pc_lo);
+      self.push(devices, pc_lo);
       self.set_status(Break, false);
       self.set_status(Unused, true);
       self.set_status(DisableInterrupts, true);
-      self.push(self.status);
-      let irq_addr = self.bus.read16(IRQ_POINTER);
+      self.push(devices, self.status);
+      let irq_addr = read16(devices, IRQ_POINTER);
       self.pc = irq_addr;
       self.cycles_left = 7;
     }
   }
 
-  pub fn sig_nmi(&mut self) {
+  pub fn sig_nmi(&mut self, devices: &mut DeviceList) {
     let pc_hi: u8 = (self.pc >> 8) as u8;
-    self.push(pc_hi);
+    self.push(devices, pc_hi);
     let pc_lo: u8 = (self.pc << 8) as u8;
-    self.push(pc_lo);
+    self.push(devices, pc_lo);
     self.set_status(Break, false);
     self.set_status(Unused, true);
     self.set_status(DisableInterrupts, true);
-    self.push(self.status);
-    let irq_addr = self.bus.read16(NMI_POINTER);
+    self.push(devices, self.status);
+    let irq_addr = read16(devices, NMI_POINTER);
     self.pc = irq_addr;
 
     self.cycles_left = 8;
@@ -253,18 +250,18 @@ struct DataSource {
 }
 
 impl DataSource {
-  pub fn read(&self, cpu: &Processor) -> u8 {
+  pub fn read(&self, cpu: &Processor, devices: &DeviceList) -> u8 {
     match self.kind {
       Accumulator => cpu.a,
-      AbsoluteAddress => cpu.bus.read(self.addr),
+      AbsoluteAddress => read(devices, self.addr),
       Implicit => panic!("Cannot read from Implicit DataSource"),
     }
   }
 
-  pub fn write(&self, cpu: &mut Processor, data: u8) {
+  pub fn write(&self, cpu: &mut Processor, devices: &mut DeviceList, data: u8) {
     match self.kind {
       Accumulator => cpu.a = data,
-      AbsoluteAddress => cpu.bus.write(self.addr, data),
+      AbsoluteAddress => write(devices, self.addr, data),
       Implicit => panic!("Cannot write to Implicit DataSource"),
     }
   }
@@ -279,7 +276,7 @@ pub struct AddressingModeResult {
 /// instruction, either in the form of a constant, read-only byte value (`data`)
 /// or an absolute address from which the data can be retrieved/written to
 /// (`addr_abs`)
-type AddressingModeImplementation = fn(&mut Processor) -> AddressingModeResult;
+type AddressingModeImplementation = fn(&mut Processor, &DeviceList) -> AddressingModeResult;
 pub enum AddressingMode {
   IMP,
   IMM,
@@ -300,7 +297,8 @@ use AddressingMode::*;
 struct InstructionResult {
   may_need_extra_cycle: bool,
 }
-type InstructionImplementation = fn(&mut Processor, &DataSource) -> InstructionResult;
+type InstructionImplementation =
+  fn(&mut Processor, &mut DeviceList, &DataSource) -> InstructionResult;
 pub enum Instruction {
   ADC,
   AND,
@@ -366,8 +364,8 @@ use Instruction::*;
 // LOGICAL INSTRUCTIONS
 
 /// AND
-fn and(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  cpu.a = cpu.a & data.read(cpu);
+fn and(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  cpu.a = cpu.a & data.read(cpu, _devices);
   cpu.set_status(Zero, cpu.a == 0x00);
   cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
 
@@ -377,8 +375,8 @@ fn and(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Exclusive OR
-fn eor(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  cpu.a = cpu.a ^ data.read(cpu);
+fn eor(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  cpu.a = cpu.a ^ data.read(cpu, _devices);
   cpu.set_status(Zero, cpu.a == 0x00);
   cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
 
@@ -388,8 +386,8 @@ fn eor(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Inclusive OR
-fn ora(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  cpu.a = cpu.a | data.read(cpu);
+fn ora(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  cpu.a = cpu.a | data.read(cpu, _devices);
   cpu.set_status(Zero, cpu.a == 0x00);
   cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
 
@@ -399,8 +397,8 @@ fn ora(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Bit Test
-fn bit(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu);
+fn bit(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices);
   cpu.set_status(Zero, cpu.a == 0x00);
 
   // Bit 6 from memory value is copied to overflow flag (why?):
@@ -415,8 +413,8 @@ fn bit(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 // LOAD/STORE OPERATIONS
 
 /// Load Accumulator
-fn lda(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu);
+fn lda(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices);
   cpu.a = m;
   cpu.set_status(Zero, m == 0);
   cpu.set_status(Negative, (0b_1000_0000 & m) != 0);
@@ -426,8 +424,8 @@ fn lda(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Load X
-fn ldx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu);
+fn ldx(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices);
   cpu.x = m;
   cpu.set_status(Zero, m == 0);
   cpu.set_status(Negative, (0b_1000_0000 & m) != 0);
@@ -437,8 +435,8 @@ fn ldx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Load Y
-fn ldy(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu);
+fn ldy(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices);
   cpu.y = m;
   cpu.set_status(Zero, m == 0);
   cpu.set_status(Negative, (0b_1000_0000 & m) != 0);
@@ -448,24 +446,24 @@ fn ldy(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Store Accumulator
-fn sta(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  data.write(cpu, cpu.a);
+fn sta(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  data.write(cpu, _devices, cpu.a);
   InstructionResult {
     may_need_extra_cycle: false,
   }
 }
 
 /// Store X
-fn stx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  data.write(cpu, cpu.x);
+fn stx(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  data.write(cpu, _devices, cpu.x);
   InstructionResult {
     may_need_extra_cycle: false,
   }
 }
 
 /// Store Y
-fn sty(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  data.write(cpu, cpu.y);
+fn sty(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  data.write(cpu, _devices, cpu.y);
   InstructionResult {
     may_need_extra_cycle: false,
   }
@@ -474,7 +472,7 @@ fn sty(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 // Register Transfers
 
 /// Transfer Accumulator to X
-fn tax(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn tax(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.x = cpu.a;
 
   cpu.set_status(Zero, cpu.a == 0x00);
@@ -486,7 +484,7 @@ fn tax(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Transfer Accumulator to Y
-fn tay(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn tay(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.y = cpu.a;
 
   cpu.set_status(Zero, cpu.a == 0x00);
@@ -498,7 +496,7 @@ fn tay(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Transfer X to Accumulator
-fn txa(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn txa(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.a = cpu.x;
 
   cpu.set_status(Zero, cpu.x == 0x00);
@@ -510,7 +508,7 @@ fn txa(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Transfer Y to Accumulator
-fn tya(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn tya(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.a = cpu.y;
 
   cpu.set_status(Zero, cpu.y == 0x00);
@@ -524,7 +522,7 @@ fn tya(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 // Stack Operations
 
 /// Transfer Stack Pointer to X
-fn tsx(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn tsx(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.x = cpu.s;
 
   cpu.set_status(Zero, cpu.s == 0x00);
@@ -536,7 +534,7 @@ fn tsx(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Transfer X to Stack Pointer
-fn txs(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn txs(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.s = cpu.x;
 
   InstructionResult {
@@ -545,8 +543,8 @@ fn txs(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Push Accumulator
-fn pha(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
-  cpu.push(cpu.a);
+fn pha(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
+  cpu.push(_devices, cpu.a);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -554,8 +552,8 @@ fn pha(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Push Processor Status
-fn php(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
-  cpu.push(cpu.status);
+fn php(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
+  cpu.push(_devices, cpu.status);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -563,8 +561,8 @@ fn php(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Pull Accumulator
-fn pla(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
-  cpu.a = cpu.pull();
+fn pla(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
+  cpu.a = cpu.pull(_devices);
 
   cpu.set_status(Zero, cpu.a == 0x00);
   cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
@@ -575,8 +573,8 @@ fn pla(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Pull Processor Status
-fn plp(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
-  cpu.status = cpu.pull();
+fn plp(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
+  cpu.status = cpu.pull(_devices);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -586,9 +584,9 @@ fn plp(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 // Arithmetic
 
 /// Add with Carry
-fn adc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn adc(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   let a = cpu.a as u16;
-  let m = data.read(cpu) as u16;
+  let m = data.read(cpu, _devices) as u16;
   let result = a + m + (cpu.get_status(Carry) as u16);
   {
     let overflow: u16 = (a ^ result) & !(a ^ m) & 0x0080;
@@ -604,10 +602,10 @@ fn adc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Subtract with Carry
-fn sbc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn sbc(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   let a = cpu.a as u16;
   // This implementation is identical to ADC, except we invert the lower 8 bits
-  let m = (data.read(cpu) as u16) ^ 0x00FF;
+  let m = (data.read(cpu, _devices) as u16) ^ 0x00FF;
   let result = a + m + (cpu.get_status(Carry) as u16) + 1;
   {
     let overflow: u16 = (a ^ result) & !(a ^ m) & 0x0080;
@@ -623,9 +621,9 @@ fn sbc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Compare Accumulator
-fn cmp(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn cmp(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   let a = cpu.a as u16;
-  let m = data.read(cpu) as u16;
+  let m = data.read(cpu, _devices) as u16;
   let result = a - m;
   cpu.set_status(Carry, a >= m);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
@@ -636,9 +634,9 @@ fn cmp(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Compare X
-fn cpx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn cpx(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   let x = cpu.x as u16;
-  let m = data.read(cpu) as u16;
+  let m = data.read(cpu, _devices) as u16;
   let result = x - m;
   cpu.set_status(Carry, x >= m);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
@@ -651,9 +649,9 @@ fn cpx(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Compare Y
-fn cpy(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn cpy(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   let y = cpu.y as u16;
-  let m = data.read(cpu) as u16;
+  let m = data.read(cpu, _devices) as u16;
   let result = y - m;
   cpu.set_status(Carry, y >= m);
   cpu.set_status(Zero, y == m);
@@ -668,19 +666,19 @@ fn cpy(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 // Increments & Decrements
 
 /// Increment Memory
-fn inc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu) as u16;
+fn inc(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices) as u16;
   let result = m + 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
-  data.write(cpu, (result & 0x00FF) as u8);
+  data.write(cpu, _devices, (result & 0x00FF) as u8);
   InstructionResult {
     may_need_extra_cycle: false,
   }
 }
 
 /// Increment X
-fn inx(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn inx(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   let result = (cpu.x as u16) + 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -691,7 +689,7 @@ fn inx(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Increment Y
-fn iny(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn iny(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   let result = (cpu.y as u16) + 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -702,19 +700,19 @@ fn iny(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Decrement Memory
-fn dec(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu) as u16;
+fn dec(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices) as u16;
   let result = m - 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
-  data.write(cpu, (result & 0x00FF) as u8);
+  data.write(cpu, _devices, (result & 0x00FF) as u8);
   InstructionResult {
     may_need_extra_cycle: false,
   }
 }
 
 /// Decrement X
-fn dex(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn dex(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   let result = (cpu.x as u16) - 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -725,7 +723,7 @@ fn dex(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Decrement Y
-fn dey(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn dey(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   let result = (cpu.y as u16) - 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -738,14 +736,14 @@ fn dey(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 // Shifts
 
 /// Arithmetic Shift Left
-fn asl(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu);
+fn asl(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices);
   let result = m << 1; // equivalent to m * 2
 
   // We set the carry bit to the 7th bit from our data, since it was shifted
   // "out" of the result:
   cpu.set_status(Carry, m & 0x80 == 0x80);
-  data.write(cpu, result);
+  data.write(cpu, _devices, result);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -753,14 +751,14 @@ fn asl(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Logical Shift Right
-fn lsr(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu);
+fn lsr(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices);
   let result = m >> 1; // equivalent to m / 2
 
   // We set the carry bit to the 0th bit from our data, since it was shifted
   // "out" of the result:
   cpu.set_status(Carry, m & 0x01 == 0x01);
-  data.write(cpu, result);
+  data.write(cpu, _devices, result);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -768,13 +766,13 @@ fn lsr(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Rotate Left
-fn rol(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu);
+fn rol(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices);
   let old_bit_7 = m >> 7;
   let result = (m << 1) | old_bit_7;
 
   cpu.set_status(Carry, old_bit_7 != 0);
-  data.write(cpu, result);
+  data.write(cpu, _devices, result);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -782,13 +780,13 @@ fn rol(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Rotate Right
-fn ror(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
-  let m = data.read(cpu);
+fn ror(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, _devices);
   let old_bit_0 = m & 0x01;
   let result = (m >> 1) | (old_bit_0 << 7);
 
   cpu.set_status(Carry, old_bit_0 != 0);
-  data.write(cpu, result);
+  data.write(cpu, _devices, result);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -798,7 +796,7 @@ fn ror(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 /// Jumps & Calls
 
 /// Jump
-fn jmp(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn jmp(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   cpu.pc = data.addr;
   InstructionResult {
     may_need_extra_cycle: false,
@@ -806,12 +804,12 @@ fn jmp(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Jump to Subroutine
-fn jsr(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn jsr(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   let return_addr = cpu.pc - 1;
   let return_hi: u8 = (return_addr >> 8) as u8;
-  cpu.push(return_hi);
+  cpu.push(_devices, return_hi);
   let return_lo: u8 = (return_addr << 8) as u8;
-  cpu.push(return_lo);
+  cpu.push(_devices, return_lo);
 
   cpu.pc = data.addr;
   InstructionResult {
@@ -820,9 +818,9 @@ fn jsr(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
 }
 
 /// Return from Subroutine
-fn rts(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
-  let return_lo = cpu.pull();
-  let return_hi = cpu.pull();
+fn rts(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
+  let return_lo = cpu.pull(_devices);
+  let return_hi = cpu.pull(_devices);
   let return_addr = ((return_hi as u16) << 8) | return_lo as u16;
   cpu.pc = return_addr;
   InstructionResult {
@@ -861,49 +859,49 @@ fn branch_if(condition: bool, cpu: &mut Processor, data: &DataSource) -> Instruc
 }
 
 /// Branch if Carry Clear
-fn bcc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn bcc(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Carry) == 0, cpu, data)
 }
 
 /// Branch if Carry Set
-fn bcs(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn bcs(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Carry) != 0, cpu, data)
 }
 
 /// Branch if Equal
-fn beq(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn beq(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Zero) != 0, cpu, data)
 }
 
 /// Branch if Minus
-fn bmi(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn bmi(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Negative) != 0, cpu, data)
 }
 
 /// Branch if Positive
-fn bpl(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn bpl(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Negative) == 0, cpu, data)
 }
 
 /// Branch if Not Equal
-fn bne(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn bne(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Zero) == 0, cpu, data)
 }
 
 /// Branch if Overflow Clear
-fn bvc(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn bvc(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Overflow) == 0, cpu, data)
 }
 
 /// Branch if Overflow Set
-fn bvs(cpu: &mut Processor, data: &DataSource) -> InstructionResult {
+fn bvs(cpu: &mut Processor, _devices: &mut DeviceList, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Overflow) != 0, cpu, data)
 }
 
 // Status Flag Changes
 
 /// Clear carry
-fn clc(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn clc(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.set_status(Carry, false);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -911,7 +909,7 @@ fn clc(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Clear decimal mode
-fn cld(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn cld(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.set_status(DecimalMode, false);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -919,7 +917,7 @@ fn cld(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Clear interrupt disable
-fn cli(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn cli(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.set_status(DisableInterrupts, false);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -927,7 +925,7 @@ fn cli(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Clear overflow
-fn clv(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn clv(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.set_status(Overflow, false);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -935,7 +933,7 @@ fn clv(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Set carry
-fn sec(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn sec(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.set_status(Carry, true);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -943,7 +941,7 @@ fn sec(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Set decimal mode
-fn sed(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn sed(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.set_status(DecimalMode, true);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -951,7 +949,7 @@ fn sed(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Set interrupt disable
-fn sei(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn sei(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   cpu.set_status(DisableInterrupts, true);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -961,14 +959,14 @@ fn sei(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 // System Functions
 
 /// Force an interrupt
-fn brk(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn brk(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   let pc_hi: u8 = (cpu.pc >> 8) as u8;
-  cpu.push(pc_hi);
+  cpu.push(_devices, pc_hi);
   let pc_lo: u8 = (cpu.pc << 8) as u8;
-  cpu.push(pc_lo);
-  cpu.push(cpu.status);
+  cpu.push(_devices, pc_lo);
+  cpu.push(_devices, cpu.status);
 
-  let irq_addr = cpu.bus.read16(IRQ_POINTER);
+  let irq_addr = read16(_devices, IRQ_POINTER);
   cpu.pc = irq_addr;
   cpu.set_status(Break, true);
   InstructionResult {
@@ -977,14 +975,14 @@ fn brk(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// Return from interrupt
-fn rti(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
-  cpu.status = cpu.pull();
+fn rti(cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
+  cpu.status = cpu.pull(_devices);
 
-  let pc_hi = cpu.pull() as u16;
-  let pc_lo = cpu.pull() as u16;
+  let pc_hi = cpu.pull(_devices) as u16;
+  let pc_lo = cpu.pull(_devices) as u16;
   cpu.pc = (pc_hi << 8) | pc_lo;
 
-  let irq_addr = cpu.bus.read16(IRQ_POINTER);
+  let irq_addr = read16(_devices, IRQ_POINTER);
   cpu.pc = irq_addr;
 
   InstructionResult {
@@ -993,7 +991,7 @@ fn rti(cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 }
 
 /// No operation
-fn nop(_cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
+fn nop(_cpu: &mut Processor, _devices: &mut DeviceList, _data: &DataSource) -> InstructionResult {
   // Do nothing.
 
   InstructionResult {
@@ -1007,7 +1005,7 @@ fn nop(_cpu: &mut Processor, _data: &DataSource) -> InstructionResult {
 ///
 /// Nothing to do here, but some implied operations operate on the accumulator,
 /// so we fetch that data here
-fn imp(_cpu: &mut Processor) -> AddressingModeResult {
+fn imp(_cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
   AddressingModeResult {
     data: DataSource {
       kind: Implicit,
@@ -1020,7 +1018,7 @@ fn imp(_cpu: &mut Processor) -> AddressingModeResult {
 /// Immediate addressing
 ///
 /// Read a byte directly from the current program counter
-fn imm(cpu: &mut Processor) -> AddressingModeResult {
+fn imm(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
   let addr_abs = cpu.pc;
   cpu.pc += 1;
 
@@ -1037,10 +1035,10 @@ fn imm(cpu: &mut Processor) -> AddressingModeResult {
 ///
 /// Read a byte at an address in the zeroth page; i.e. from one of the first 256
 /// bytes in memory
-fn zp0(cpu: &mut Processor) -> AddressingModeResult {
+fn zp0(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
   // Read the first operand, constructing a 16-bit address within the zeroth
   // page:
-  let addr_abs = (cpu.bus.read(cpu.pc) as u16) & 0x00FF;
+  let addr_abs = (read(_devices, cpu.pc) as u16) & 0x00FF;
   cpu.pc += 1;
   AddressingModeResult {
     data: DataSource {
@@ -1055,10 +1053,10 @@ fn zp0(cpu: &mut Processor) -> AddressingModeResult {
 ///
 /// Read a byte at an address in the zeroth page + X; i.e. starting from X, plus
 /// 0-255
-fn zpx(cpu: &mut Processor) -> AddressingModeResult {
+fn zpx(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
   // Read the first operand, constructing a 16-bit address within the zeroth
   // page:
-  let addr_abs = ((cpu.x + cpu.bus.read(cpu.pc)) as u16) & 0x00FF;
+  let addr_abs = ((cpu.x + read(_devices, cpu.pc)) as u16) & 0x00FF;
   cpu.pc += 1;
   AddressingModeResult {
     data: DataSource {
@@ -1073,10 +1071,10 @@ fn zpx(cpu: &mut Processor) -> AddressingModeResult {
 ///
 /// Read a byte at an address in the zeroth page + Y; i.e. starting from Y, plus
 /// 0-255
-fn zpy(cpu: &mut Processor) -> AddressingModeResult {
+fn zpy(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
   // Read the first operand, constructing a 16-bit address within the zeroth
   // page:
-  let addr_abs = ((cpu.y + cpu.bus.read(cpu.pc)) as u16) & 0x00FF;
+  let addr_abs = ((cpu.y + read(_devices, cpu.pc)) as u16) & 0x00FF;
   cpu.pc += 1;
   AddressingModeResult {
     data: DataSource {
@@ -1090,10 +1088,10 @@ fn zpy(cpu: &mut Processor) -> AddressingModeResult {
 /// Absolute addressing
 ///
 /// Read a full 16-bit address from the current program counter + 1
-fn abs(cpu: &mut Processor) -> AddressingModeResult {
-  let addr_lo = cpu.bus.read(cpu.pc) as u16;
+fn abs(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
+  let addr_lo = read(_devices, cpu.pc) as u16;
   cpu.pc += 1;
-  let addr_hi = cpu.bus.read(cpu.pc) as u16;
+  let addr_hi = read(_devices, cpu.pc) as u16;
   cpu.pc += 1;
   AddressingModeResult {
     data: DataSource {
@@ -1108,10 +1106,10 @@ fn abs(cpu: &mut Processor) -> AddressingModeResult {
 ///
 /// Read a full 16-bit address from the current program counter + 1, then apply
 /// an offset of X
-fn abx(cpu: &mut Processor) -> AddressingModeResult {
-  let addr_lo = cpu.bus.read(cpu.pc) as u16;
+fn abx(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
+  let addr_lo = read(_devices, cpu.pc) as u16;
   cpu.pc += 1;
-  let addr_hi = cpu.bus.read(cpu.pc) as u16;
+  let addr_hi = read(_devices, cpu.pc) as u16;
   cpu.pc += 1;
   let addr_abs = ((addr_hi << 8) | addr_lo) + cpu.x as u16;
 
@@ -1133,10 +1131,10 @@ fn abx(cpu: &mut Processor) -> AddressingModeResult {
 ///
 /// Read a full 16-bit address from the current program counter + 1, then apply
 /// an offset of Y
-fn aby(cpu: &mut Processor) -> AddressingModeResult {
-  let addr_lo = cpu.bus.read(cpu.pc) as u16;
+fn aby(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
+  let addr_lo = read(_devices, cpu.pc) as u16;
   cpu.pc += 1;
-  let addr_hi = cpu.bus.read(cpu.pc) as u16;
+  let addr_hi = read(_devices, cpu.pc) as u16;
   cpu.pc += 1;
   let addr_abs = ((addr_hi << 8) | addr_lo) + cpu.y as u16;
 
@@ -1155,10 +1153,10 @@ fn aby(cpu: &mut Processor) -> AddressingModeResult {
 }
 
 /// Indirect
-fn ind(cpu: &mut Processor) -> AddressingModeResult {
-  let ptr_lo = cpu.bus.read(cpu.pc) as u16;
+fn ind(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
+  let ptr_lo = read(_devices, cpu.pc) as u16;
   cpu.pc += 1;
-  let ptr_hi = cpu.bus.read(cpu.pc) as u16;
+  let ptr_hi = read(_devices, cpu.pc) as u16;
   cpu.pc += 1;
   let ptr = ptr_hi << 8 | ptr_lo;
 
@@ -1167,9 +1165,9 @@ fn ind(cpu: &mut Processor) -> AddressingModeResult {
   // therefore it is possible for this to happen), it will not actually read the
   // hi byte of the address properly
   let addr_abs = if ptr_lo == 0x00FF {
-    ((cpu.bus.read(ptr & 0xFF00) as u16) << 8) | cpu.bus.read(ptr) as u16
+    ((read(_devices, ptr & 0xFF00) as u16) << 8) | read(_devices, ptr) as u16
   } else {
-    cpu.bus.read16(ptr)
+    read16(_devices, ptr)
   };
 
   AddressingModeResult {
@@ -1182,13 +1180,13 @@ fn ind(cpu: &mut Processor) -> AddressingModeResult {
 }
 
 /// (Indirect, X)
-fn izx(cpu: &mut Processor) -> AddressingModeResult {
+fn izx(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
   // Our pointer lives in the zeroth page, so we only need to read one byte
-  let ptr = cpu.bus.read(cpu.pc) as u16 & 0x00FF;
+  let ptr = read(_devices, cpu.pc) as u16 & 0x00FF;
   cpu.pc += 1;
 
   // We read X offset from this pointer
-  let addr_abs = cpu.bus.read16(ptr + (cpu.x as u16) & 0x00FF);
+  let addr_abs = read16(_devices, ptr + (cpu.x as u16) & 0x00FF);
   AddressingModeResult {
     data: DataSource {
       kind: AbsoluteAddress,
@@ -1199,15 +1197,15 @@ fn izx(cpu: &mut Processor) -> AddressingModeResult {
 }
 
 /// (Indirect), Y
-fn izy(cpu: &mut Processor) -> AddressingModeResult {
+fn izy(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
   // Our pointer lives in the zeroth page, so we only need to read one byte
-  let ptr = cpu.bus.read(cpu.pc) as u16 & 0x00FF;
+  let ptr = read(_devices, cpu.pc) as u16 & 0x00FF;
   cpu.pc += 1;
 
-  let addr_abs = cpu.bus.read16(ptr) + cpu.y as u16;
+  let addr_abs = read16(_devices, ptr) + cpu.y as u16;
 
   // We only read this here so we can check if we crossed a page:
-  let addr_hi = cpu.bus.read(ptr + 1) as u16 & 0x00FF;
+  let addr_hi = read(_devices, ptr + 1) as u16 & 0x00FF;
   // If our hi byte is changed after we've added Y, then it has changed due to
   // overflow which means we are crossing a page. When we cross a page, we may
   // need an extra cycle:
@@ -1223,7 +1221,7 @@ fn izy(cpu: &mut Processor) -> AddressingModeResult {
 }
 
 /// Accumulator
-fn acc(_cpu: &mut Processor) -> AddressingModeResult {
+fn acc(_cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
   AddressingModeResult {
     data: DataSource {
       kind: Accumulator,
@@ -1234,8 +1232,8 @@ fn acc(_cpu: &mut Processor) -> AddressingModeResult {
 }
 
 /// Relative
-fn rel(cpu: &mut Processor) -> AddressingModeResult {
-  let offset = cpu.bus.read(cpu.pc);
+fn rel(cpu: &mut Processor, _devices: &DeviceList) -> AddressingModeResult {
+  let offset = read(_devices, cpu.pc);
   cpu.pc += 1;
 
   // This ensures the binary arithmatic works out when adding this relative
@@ -2120,7 +2118,7 @@ mod tests {
 
   #[test]
   fn get_status() {
-    let mut cpu = Processor::new(Bus::new(vec![Rc::new(DummyBus {})]));
+    let mut cpu = Processor::new();
 
     for flag in &ALL_FLAGS {
       assert_eq!(cpu.get_status(*flag), 0b0000);
@@ -2142,7 +2140,7 @@ mod tests {
 
   #[test]
   fn set_status() {
-    let mut cpu = Processor::new(Bus::new(vec![Rc::new(DummyBus {})]));
+    let mut cpu = Processor::new();
 
     for flag in &ALL_FLAGS {
       let flag = *flag;
@@ -2156,22 +2154,23 @@ mod tests {
 
   #[test]
   fn simple_and() {
-    let mut cpu = Processor::new(Bus::new(vec![Rc::new(Ram::new(0x0000, 64 * 1024))]));
+    let mut devices: DeviceList = vec![Box::new(Ram::new(0x0000, 64 * 1024))];
+    let mut cpu = Processor::new();
     let program_start: u16 = 0x8000;
 
-    cpu.bus.write16(PC_INIT_ADDR, program_start);
+    write16(&mut devices, PC_INIT_ADDR, program_start);
 
-    cpu.bus.write(program_start, 0x29); // AND - Immediate
-    cpu.bus.write(program_start + 1, 0x02); //   2
+    write(&mut devices, program_start, 0x29); // AND - Immediate
+    write(&mut devices, program_start + 1, 0x02); //   2
 
-    cpu.sig_reset();
-    cpu.step();
+    cpu.sig_reset(&mut devices);
+    cpu.step(&mut devices);
 
     cpu.a = 0x01;
     assert_eq!(cpu.a, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
 
-    cpu.step();
+    cpu.step(&mut devices);
 
     // Our accumulator should be 0 now:
     assert_eq!(cpu.a, 0x00);
@@ -2182,19 +2181,20 @@ mod tests {
   fn simple_ora() {
     let ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = 0x8000;
-    let mut cpu = Processor::new(Bus::new(vec![Rc::new(ram)]));
-    cpu.bus.write16(PC_INIT_ADDR, program_start);
+    let mut devices: DeviceList = vec![Box::new(ram)];
+    let mut cpu = Processor::new();
+    write16(&mut devices, PC_INIT_ADDR, program_start);
 
-    cpu.bus.write(program_start, 0x09); // ORA - Immediate
-    cpu.bus.write(program_start + 1, 0x02); //   2
-    cpu.sig_reset();
-    cpu.step();
+    write(&mut devices, program_start, 0x09); // ORA - Immediate
+    write(&mut devices, program_start + 1, 0x02); //   2
+    cpu.sig_reset(&mut devices);
+    cpu.step(&mut devices);
 
     cpu.a = 0x01;
     assert_eq!(cpu.a, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
 
-    cpu.step();
+    cpu.step(&mut devices);
 
     // Our accumulator should be 3 now:
     assert_eq!(cpu.a, 0x03);
@@ -2205,29 +2205,29 @@ mod tests {
   fn simple_eor() {
     let ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = 0x8000;
+    let mut devices: DeviceList = vec![Box::new(ram)];
+    let mut cpu = Processor::new();
+    write16(&mut devices, PC_INIT_ADDR, program_start);
 
-    let mut cpu = Processor::new(Bus::new(vec![Rc::new(ram)]));
-    cpu.bus.write16(PC_INIT_ADDR, program_start);
+    write(&mut devices, program_start + 0, 0x49); // EOR - Immediate
+    write(&mut devices, program_start + 1, 0x02); //   2
 
-    cpu.bus.write(program_start + 0, 0x49); // EOR - Immediate
-    cpu.bus.write(program_start + 1, 0x02); //   2
-
-    cpu.bus.write(program_start + 2, 0x49); // EOR - Immediate
-    cpu.bus.write(program_start + 3, 0x02); //   2
-    cpu.sig_reset();
-    cpu.step();
+    write(&mut devices, program_start + 2, 0x49); // EOR - Immediate
+    write(&mut devices, program_start + 3, 0x02); //   2
+    cpu.sig_reset(&mut devices);
+    cpu.step(&mut devices);
 
     cpu.a = 0x01;
     assert_eq!(cpu.a, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
 
-    cpu.step();
+    cpu.step(&mut devices);
 
     // Our accumulator should be 3 now:
     assert_eq!(cpu.a, 0x03);
     assert_eq!(cpu.get_status(Zero), 0x00);
 
-    cpu.step();
+    cpu.step(&mut devices);
 
     //  0b00000011
     // ^0b00000010
@@ -2338,22 +2338,23 @@ mod tests {
 
     for test in tests {
       let program_start: u16 = 0x8000;
-      let mut cpu = Processor::new(Bus::new(vec![Rc::new(Ram::new(0x0000, 64 * 1024))]));
+      let mut devices: DeviceList = vec![Box::new(Ram::new(0x0000, 64 * 1024))];
+      let mut cpu = Processor::new();
 
-      cpu.bus.write16(PC_INIT_ADDR, program_start);
+      write16(&mut devices, PC_INIT_ADDR, program_start);
       #[rustfmt::skip]
       let program: Vec<u8> = vec![
           0x69, test.m,
       ];
       let mut offset: u16 = 0;
       for byte in program {
-        cpu.bus.write(program_start + offset, byte);
+        write(&mut devices, program_start + offset, byte);
         offset += 1;
       }
-      cpu.sig_reset();
-      cpu.step();
+      cpu.sig_reset(&mut devices);
+      cpu.step(&mut devices);
       cpu.a = test.a;
-      cpu.step();
+      cpu.step(&mut devices);
 
       // The result should be stored into cpu.a:
       assert_eq!(cpu.a, test.r);
@@ -2467,22 +2468,23 @@ mod tests {
 
     for test in tests {
       let program_start: u16 = 0x8000;
-      let mut cpu = Processor::new(Bus::new(vec![Rc::new(Ram::new(0x0000, 64 * 1024))]));
+      let mut devices: DeviceList = vec![Box::new(Ram::new(0x0000, 64 * 1024))];
+      let mut cpu = Processor::new();
 
-      cpu.bus.write16(PC_INIT_ADDR, program_start);
+      write16(&mut devices, PC_INIT_ADDR, program_start);
       #[rustfmt::skip]
       let program: Vec<u8> = vec![
           0xE9, test.m,
       ];
       let mut offset: u16 = 0;
       for byte in program {
-        cpu.bus.write(program_start + offset, byte);
+        write(&mut devices, program_start + offset, byte);
         offset += 1;
       }
-      cpu.sig_reset();
-      cpu.step();
+      cpu.sig_reset(&mut devices);
+      cpu.step(&mut devices);
       cpu.a = test.a;
-      cpu.step();
+      cpu.step(&mut devices);
 
       // The result should be stored into cpu.a:
       assert_eq!(cpu.a, test.r);

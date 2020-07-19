@@ -18,6 +18,7 @@ pub mod nes;
 pub mod ppu;
 pub mod ram;
 
+use crate::bus::{read, read16, write, write16};
 use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;
 use crate::nes::Nes;
@@ -95,8 +96,7 @@ impl Game for NESDebugger {
             };
 
             let mut debugger_ui = NESDebugger { img: None, nes };
-
-            debugger_ui.nes.cpu.sig_reset();
+            debugger_ui.nes.cpu.sig_reset(&mut debugger_ui.nes.devices);
             debugger_ui.nes.step();
 
             debugger_ui
@@ -119,7 +119,7 @@ impl Game for NESDebugger {
             if key == "Space" {
                 self.nes.step();
             } else if key == "R" {
-                self.nes.cpu.sig_reset();
+                self.nes.cpu.sig_reset(&mut self.nes.devices);
             } else if key == "F" {
                 self.nes.frame();
             }
@@ -160,7 +160,7 @@ impl UserInterface for NESDebugger {
             let addr = 0 as u16 + (page as u16) * 16;
             stack_str.push_str(&format!("{:04X}: ", addr));
             for offset in 0..16 {
-                stack_str.push_str(&format!("{:02X} ", self.nes.cpu.bus.read(addr + offset)));
+                stack_str.push_str(&format!("{:02X} ", read(&self.nes.devices, addr + offset)));
             }
             stack_str.push_str("\n");
         }
@@ -173,9 +173,9 @@ impl UserInterface for NESDebugger {
             for offset in 0..16 {
                 let addr = addr + offset;
                 if addr == self.nes.cpu.pc {
-                    ram_str.push_str(&format!("{:02X}<", self.nes.cpu.bus.read(addr)));
+                    ram_str.push_str(&format!("{:02X}<", read(&self.nes.devices, addr)));
                 } else {
-                    ram_str.push_str(&format!("{:02X} ", self.nes.cpu.bus.read(addr)));
+                    ram_str.push_str(&format!("{:02X} ", read(&self.nes.devices, addr)));
                 }
             }
             ram_str.push_str("\n");
@@ -188,10 +188,10 @@ impl UserInterface for NESDebugger {
             .push(Text::new(&ram_str).size(30));
 
         let mut program: Vec<u8> = vec![];
-        let program_start = self.nes.cpu.bus.read16(PC_INIT_ADDR);
+        let program_start = read16(&self.nes.devices, PC_INIT_ADDR);
         let mut pc = program_start;
         while pc < self.nes.cpu.pc + 128 {
-            program.push(self.nes.cpu.bus.read(pc));
+            program.push(read(&self.nes.devices, pc));
             pc += 1;
         }
         let disassembled = disassemble(&program);

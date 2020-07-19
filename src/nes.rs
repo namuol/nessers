@@ -1,6 +1,4 @@
-use std::rc::Rc;
-
-use crate::bus::Bus;
+use crate::bus::DeviceList;
 use crate::cart::Cart;
 use crate::cpu6502::Processor;
 use crate::mirror::Mirror;
@@ -10,7 +8,8 @@ use crate::ram::Ram;
 pub struct Nes {
   tick: u64,
   pub cpu: Processor,
-  pub ppu: Rc<Ppu>,
+  pub ppu: Ppu,
+  pub devices: DeviceList,
 }
 
 impl Nes {
@@ -20,36 +19,38 @@ impl Nes {
       Err(msg) => return Err(msg),
     };
 
-    let ppu = Rc::new(Ppu::new());
-    // let bus_ppu = Rc::clone(&ppu);
-    let bus_ppu = Rc::new(Ram::new(0x2000, 8));
+    let ppu = Ppu::new();
+    let ppu_registers = Box::new(Ram::new(0x2000, 8));
+
+    let devices: DeviceList = vec![
+      // Cartridge
+      Box::new(cart),
+      // 2K internal RAM, mirrored to 8K
+      Box::new(Mirror::new(
+        0x0000,
+        Box::new(Ram::new(0x0000, 2 * 1024)),
+        8 * 1024,
+      )),
+      // PPU Registers, mirrored for 8K
+      Box::new(Mirror::new(0x2000, ppu_registers, 8 * 1024)),
+      // APU & I/O Registers
+      Box::new(Ram::new(0x4000, 0x18)),
+      // APU & I/O functionality that is normally disabled
+      Box::new(Ram::new(0x4018, 0x08)),
+    ];
 
     Ok(Nes {
       tick: 0,
       ppu,
-      cpu: Processor::new(Bus::new(vec![
-        // Cartridge
-        Rc::new(cart),
-        // 2K internal RAM, mirrored to 8K
-        Rc::new(Mirror::new(
-          0x0000,
-          Rc::new(Ram::new(0x0000, 2 * 1024)),
-          8 * 1024,
-        )),
-        // PPU Registers, mirrored for 8K
-        Rc::new(Mirror::new(0x2000, bus_ppu, 8 * 1024)),
-        // APU & I/O Registers
-        Rc::new(Ram::new(0x4000, 0x18)),
-        // APU & I/O functionality that is normally disabled
-        Rc::new(Ram::new(0x4018, 0x08)),
-      ])),
+      cpu: Processor::new(),
+      devices,
     })
   }
 
   pub fn clock(&mut self) {
-    Rc::get_mut(&mut self.ppu).unwrap().clock();
+    self.ppu.clock();
     if self.tick % 3 == 0 {
-      self.cpu.clock();
+      self.cpu.clock(&mut self.devices);
     }
     self.tick += 1;
   }

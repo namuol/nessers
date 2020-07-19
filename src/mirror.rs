@@ -1,5 +1,3 @@
-use std::rc::Rc;
-
 use crate::bus_device::{BusDevice, BusDeviceRange};
 
 pub trait RangedBusDevice: BusDevice + BusDeviceRange {}
@@ -7,12 +5,12 @@ impl<T> RangedBusDevice for T where T: BusDevice + BusDeviceRange {}
 
 pub struct Mirror {
   pub start: u16,
-  master: Rc<dyn RangedBusDevice>,
+  master: Box<dyn RangedBusDevice>,
   total_size: usize,
 }
 
 impl Mirror {
-  pub fn new(start: u16, master: Rc<dyn RangedBusDevice>, total_size: usize) -> Self {
+  pub fn new(start: u16, master: Box<dyn RangedBusDevice>, total_size: usize) -> Self {
     Mirror {
       start,
       master,
@@ -34,8 +32,7 @@ impl BusDevice for Mirror {
   fn write(&mut self, addr: u16, data: u8) -> Option<()> {
     let master_addr = addr % self.master.size() as u16;
 
-    // FIXME: We probably want to use RefCell here:
-    Rc::get_mut(&mut self.master).unwrap().write(master_addr, data)
+    self.master.write(master_addr, data)
   }
   fn read(&self, addr: u16) -> Option<u8> {
     let master_addr = addr % self.master.size() as u16;
@@ -51,7 +48,7 @@ mod tests {
   #[test]
   fn ram_mirror() {
     let ram = Ram::new(0x0000, 32 * 1024);
-    let mut mirror = Mirror::new(0x0000, Rc::new(ram), 2 * 32 * 1024);
+    let mut mirror = Mirror::new(0x0000, Box::new(ram), 2 * 32 * 1024);
     mirror.write(0x0000, 42);
     assert_eq!(mirror.read(0x8000), Some(42));
     assert_eq!(mirror.read(0x0000), Some(42));
