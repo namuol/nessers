@@ -36,7 +36,8 @@ fn main() -> Result<()> {
 }
 
 struct NESDebugger {
-    img: Option<coffee::graphics::Image>,
+    screen_img: Option<coffee::graphics::Image>,
+    pattern_table_img: Option<coffee::graphics::Image>,
     nes: Nes,
 }
 
@@ -99,7 +100,11 @@ impl Game for NESDebugger {
                 Err(msg) => panic!(msg),
             };
 
-            let mut debugger_ui = NESDebugger { img: None, nes };
+            let mut debugger_ui = NESDebugger {
+                screen_img: None,
+                pattern_table_img: None,
+                nes,
+            };
             debugger_ui.nes.cpu.sig_reset(&mut debugger_ui.nes.devices);
             debugger_ui.nes.step();
 
@@ -132,7 +137,11 @@ impl Game for NESDebugger {
         input.keypresses.clear();
 
         // Update the screen image:
-        self.img = Some(from_screen(window.gpu(), &self.nes.ppu.screen).unwrap());
+        self.screen_img = Some(from_screen(window.gpu(), &self.nes.ppu.screen).unwrap());
+
+        // Get the pattern table image:
+        self.pattern_table_img =
+            Some(from_pattern_table(window.gpu(), &self.nes.ppu.render_pattern_table()).unwrap());
     }
 }
 
@@ -276,7 +285,8 @@ impl UserInterface for NESDebugger {
             .push(Text::new(&format!(" Y: {:02X} ({})", self.nes.cpu.y, self.nes.cpu.y)).size(30))
             .push(Text::new("---".into()).size(30))
             .push(Text::new(&disassembled_output.join("\n")).size(30));
-        let ui = Row::new()
+
+        let mut ui = Row::new()
             .padding(16)
             .spacing(16)
             .width(window.width() as u32)
@@ -284,10 +294,21 @@ impl UserInterface for NESDebugger {
             .push(left_pane)
             .push(center_pane);
 
-        match &self.img {
-            Some(img) => ui.push(Image::new(&img)).into(),
-            None => ui.into(),
-        }
+        ui = match &self.screen_img {
+            Some(img) => ui
+                // .push(Text::new("Screen:").size(30))
+                .push(Image::new(&img)),
+            None => ui,
+        };
+
+        ui = match &self.pattern_table_img {
+            Some(img) => ui
+                // .push(Text::new("Pattern:").size(30))
+                .push(Image::new(&img)),
+            None => ui,
+        };
+
+        ui.into()
     }
 }
 
@@ -332,6 +353,29 @@ fn from_screen(
             image::RgbaImage::from_raw(
                 SCREEN_W as u32,
                 SCREEN_H as u32,
+                colors.iter().flatten().cloned().collect(),
+            )
+            .unwrap(),
+        ),
+    )
+}
+
+fn from_pattern_table(
+    gpu: &mut Gpu,
+    pattern_table: &[[u8; 4]; 128 * 128],
+) -> Result<coffee::graphics::Image> {
+    let colors: Vec<[u8; 4]> = pattern_table
+        .iter()
+        // For now, we just plop the pixel
+        .map(|color| *color)
+        .collect();
+
+    coffee::graphics::Image::from_image(
+        gpu,
+        &image::DynamicImage::ImageRgba8(
+            image::RgbaImage::from_raw(
+                128 as u32,
+                128 as u32,
                 colors.iter().flatten().cloned().collect(),
             )
             .unwrap(),
