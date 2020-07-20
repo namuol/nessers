@@ -19,7 +19,7 @@ pub mod palette;
 pub mod ppu;
 pub mod ram;
 
-use crate::bus::{read, read16};
+use crate::bus::Bus;
 use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;
 use crate::nes::Nes;
@@ -105,7 +105,10 @@ impl Game for NESDebugger {
                 pattern_table_img: None,
                 nes,
             };
-            debugger_ui.nes.cpu.sig_reset(&mut debugger_ui.nes.devices);
+            debugger_ui
+                .nes
+                .cpu
+                .sig_reset(&mut debugger_ui.nes.cpu_devices);
             debugger_ui.nes.step();
 
             debugger_ui
@@ -128,7 +131,7 @@ impl Game for NESDebugger {
             if key == "Space" {
                 self.nes.step();
             } else if key == "R" {
-                self.nes.cpu.sig_reset(&mut self.nes.devices);
+                self.nes.cpu.sig_reset(&mut self.nes.cpu_devices);
             } else if key == "F" {
                 self.nes.frame();
             }
@@ -141,7 +144,7 @@ impl Game for NESDebugger {
 
         // Get the pattern table image:
         self.pattern_table_img =
-            Some(from_pattern_table(window.gpu(), &self.nes.ppu.render_pattern_table()).unwrap());
+            Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(0)).unwrap());
     }
 }
 
@@ -173,7 +176,10 @@ impl UserInterface for NESDebugger {
             let addr = 0 as u16 + (page as u16) * 16;
             stack_str.push_str(&format!("{:04X}: ", addr));
             for offset in 0..16 {
-                stack_str.push_str(&format!("{:02X} ", read(&self.nes.devices, addr + offset)));
+                stack_str.push_str(&format!(
+                    "{:02X} ",
+                    self.nes.cpu_devices.read(addr + offset)
+                ));
             }
             stack_str.push_str("\n");
         }
@@ -186,9 +192,9 @@ impl UserInterface for NESDebugger {
             for offset in 0..16 {
                 let addr = addr + offset;
                 if addr == self.nes.cpu.pc {
-                    ram_str.push_str(&format!("{:02X}<", read(&self.nes.devices, addr)));
+                    ram_str.push_str(&format!("{:02X}<", self.nes.cpu_devices.read(addr)));
                 } else {
-                    ram_str.push_str(&format!("{:02X} ", read(&self.nes.devices, addr)));
+                    ram_str.push_str(&format!("{:02X} ", self.nes.cpu_devices.read(addr)));
                 }
             }
             ram_str.push_str("\n");
@@ -201,10 +207,10 @@ impl UserInterface for NESDebugger {
             .push(Text::new(&ram_str).size(30));
 
         let mut program: Vec<u8> = vec![];
-        let program_start = read16(&self.nes.devices, PC_INIT_ADDR);
+        let program_start = self.nes.cpu_devices.read16(PC_INIT_ADDR);
         let mut pc = program_start;
         while pc < self.nes.cpu.pc + 128 {
-            program.push(read(&self.nes.devices, pc));
+            program.push(self.nes.cpu_devices.read(pc));
             pc += 1;
         }
         let disassembled = disassemble(&program);

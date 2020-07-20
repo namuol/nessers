@@ -64,10 +64,6 @@ impl Ppu {
       }
     }
   }
-
-  pub fn render_pattern_table(&self) -> [[u8; 4]; 128 * 128] {
-    [[0xFF, 0x00, 0xFF, 0xFF]; 128 * 128]
-  }
 }
 
 // CPU can Read/Write to PPU registers, which are 8 bytes that start at 0x2000
