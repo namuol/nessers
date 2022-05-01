@@ -1354,7 +1354,7 @@ const ILLEGAL_OPERATION: Operation = Operation {
 //   Indirect: 'ind',
 //   Relative: 'rel',
 // };
-
+//
 // makeOp = ({opcode, instruction, addressing_mode, cycles}) => `0x${opcode.slice(1)} => Operation {
 //   instruction: ${instruction.toLowerCase()},
 //   addressing_mode: ${addressing_map[addressing_mode.trim()] || addressing_mode},
@@ -2300,9 +2300,11 @@ mod tests {
 
     cpu.step(&mut bus);
 
+    // ```
     //  0b00000011
     // ^0b00000010
     // =0b00000001
+    // ```
     assert_eq!(cpu.a, 0x01);
     assert_eq!(cpu.get_status(Zero), 0x00);
   }
