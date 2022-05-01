@@ -6,7 +6,7 @@ use std::collections::HashMap;
 ///
 /// See the "Processor Status" register description here:
 ///
-/// - http://obelisk.me.uk/6502/registers.html
+/// - https://web.archive.org/web/20210803072351/http://www.obelisk.me.uk/6502/registers.html
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum StatusFlag {
   Carry = 1 << 0,
@@ -1334,7 +1334,7 @@ const ILLEGAL_OPERATION: Operation = Operation {
 };
 
 // Generated the following hashmap by running this JS on
-// http://www.obelisk.me.uk/6502/reference.html
+// https://web.archive.org/web/20210724004546/http://www.obelisk.me.uk/6502/reference.html
 //
 // ```js
 // addressing_map = {
