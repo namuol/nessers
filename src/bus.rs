@@ -1,5 +1,4 @@
 use crate::bus_device::BusDevice;
-use crate::cpu6502::Processor;
 
 /// A list of bus devices, in order of "priority". The order of devices does
 /// **not** represent where the device lives in address space.
@@ -9,7 +8,7 @@ use crate::cpu6502::Processor;
 /// owns that operation, and all devices after it in the list are ignored.
 pub type DeviceList = Vec<Box<dyn BusDevice>>;
 
-impl Bus<Processor> for DeviceList {
+impl Bus for DeviceList {
   fn write(&mut self, addr: u16, data: u8) {
     for device in self {
       match device.write(addr, data) {
@@ -44,7 +43,7 @@ impl Bus<Processor> for DeviceList {
   }
 }
 
-pub trait Bus<T> {
+pub trait Bus {
   fn read(&self, addr: u16) -> u8;
   fn read16(&self, addr: u16) -> u16;
   fn write(&mut self, addr: u16, data: u8);

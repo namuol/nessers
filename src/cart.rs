@@ -157,7 +157,7 @@ mod tests {
       0x53,                    // S
       0x1A,                    // EOF
       0x01,                    // 1 * 16K PRG
-      0x01,                    // 1 * 8K CHR
+      0x02,                    // 2 * 8K CHR
       (0x10 | FLAG_MIRRORING), // Lower nybble of mapper code + Flags
       (0x10 | 0x00),           // Upper nybble of mapper code + iNES version
       // Pad up to 16 bytes, which is the minimum for this function not to

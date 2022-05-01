@@ -11,7 +11,7 @@ pub struct Ppu {
   scanline: isize,
   /// The current pixel number on the current scanline
   cycle: isize,
-  palette: Palette,
+  pub palette: Palette,
   pub frame_complete: bool,
   pub screen: [[u8; 4]; SCREEN_W * SCREEN_H],
 }

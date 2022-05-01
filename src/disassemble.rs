@@ -152,8 +152,9 @@ pub fn disassemble(program: &Vec<u8>) -> Vec<DisassembledOperation> {
         "A".into()
       }
       REL => {
+        let addr = pc % program.len();
         // Relative; read one byte:
-        let param = program[pc % program.len()];
+        let param = program[addr];
         pc += 1;
 
         if param & 0x80 != 0 {

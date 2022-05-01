@@ -144,7 +144,7 @@ impl Game for NESDebugger {
 
         // Get the pattern table image:
         self.pattern_table_img =
-            Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(0)).unwrap());
+            Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(0, 0)).unwrap());
     }
 }
 

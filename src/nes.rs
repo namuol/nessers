@@ -2,7 +2,7 @@ use crate::bus::{Bus, DeviceList};
 use crate::cart::Cart;
 use crate::cpu6502::Processor;
 use crate::mirror::Mirror;
-use crate::palette::Palette;
+use crate::palette::{Color, Palette};
 use crate::ppu::Ppu;
 use crate::ram::Ram;
 
@@ -82,7 +82,7 @@ impl Nes {
     }
   }
 
-  pub fn render_pattern_table(&self, table_number: u16) -> [[u8; 4]; 128 * 128] {
+  pub fn render_pattern_table(&self, table_number: u16, palette: u8) -> [[u8; 4]; 128 * 128] {
     let mut result = [[0x00, 0x00, 0x00, 0xFF]; 128 * 128];
     // We want to render 16x16 tiles
     for tile_y in 0..16 {
@@ -109,6 +109,7 @@ impl Nes {
             // To compute this, we can actually just add these two bits
             // together, since the highest the value can be is 2.
             let pixel_color_index = (tile_lsb & 0x01) + (tile_msb & 0x01);
+            let color = self.get_color_from_palette_ram(palette, pixel_color_index);
 
             // For our next column, we just need to look at the _next_ bit in
             // our least/most significant bytes. To achieve this, all we need to
@@ -121,9 +122,9 @@ impl Nes {
             let pixel_x = (tile_x * 8) + (7 - col);
 
             let pixel_idx = (pixel_y * 128 + pixel_x) as usize;
-            result[pixel_idx][0] = 0xFF;
-            result[pixel_idx][1] = 0xFF;
-            result[pixel_idx][2] = 0x00;
+            result[pixel_idx][0] = color.r;
+            result[pixel_idx][1] = color.g;
+            result[pixel_idx][2] = color.b;
           }
         }
       }
@@ -131,34 +132,11 @@ impl Nes {
 
     result
   }
-}
 
-impl Bus<Processor> for Nes {
-  fn read(&self, _: u16) -> u8 {
-    todo!()
-  }
-  fn read16(&self, _: u16) -> u16 {
-    todo!()
-  }
-  fn write(&mut self, _: u16, _: u8) {
-    todo!()
-  }
-  fn write16(&mut self, _: u16, _: u16) {
-    todo!()
-  }
-}
-
-impl Bus<Ppu> for Nes {
-  fn read(&self, _: u16) -> u8 {
-    todo!()
-  }
-  fn read16(&self, _: u16) -> u16 {
-    todo!()
-  }
-  fn write(&mut self, _: u16, _: u8) {
-    todo!()
-  }
-  fn write16(&mut self, _: u16, _: u16) {
-    todo!()
+  pub fn get_color_from_palette_ram(&self, palette: u8, pixel: u8) -> Color {
+    let idx = self
+      .ppu_devices
+      .read(0x3F00 as u16 + ((palette << 2) + pixel) as u16);
+    self.ppu.palette.colors[idx as usize]
   }
 }
