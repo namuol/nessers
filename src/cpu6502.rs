@@ -472,7 +472,11 @@ fn sty(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> 
 // Register Transfers
 
 /// Transfer Accumulator to X
-fn tax(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn tax(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.x = cpu.a;
 
   cpu.set_status(Zero, cpu.a == 0x00);
@@ -484,7 +488,11 @@ fn tax(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Transfer Accumulator to Y
-fn tay(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn tay(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.y = cpu.a;
 
   cpu.set_status(Zero, cpu.a == 0x00);
@@ -496,7 +504,11 @@ fn tay(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Transfer X to Accumulator
-fn txa(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn txa(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.a = cpu.x;
 
   cpu.set_status(Zero, cpu.x == 0x00);
@@ -508,7 +520,11 @@ fn txa(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Transfer Y to Accumulator
-fn tya(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn tya(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.a = cpu.y;
 
   cpu.set_status(Zero, cpu.y == 0x00);
@@ -522,7 +538,11 @@ fn tya(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 // Stack Operations
 
 /// Transfer Stack Pointer to X
-fn tsx(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn tsx(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.x = cpu.s;
 
   cpu.set_status(Zero, cpu.s == 0x00);
@@ -534,7 +554,11 @@ fn tsx(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Transfer X to Stack Pointer
-fn txs(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn txs(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.s = cpu.x;
 
   InstructionResult {
@@ -678,7 +702,11 @@ fn inc(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> 
 }
 
 /// Increment X
-fn inx(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn inx(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   let result = (cpu.x as u16) + 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -689,7 +717,11 @@ fn inx(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Increment Y
-fn iny(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn iny(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   let result = (cpu.y as u16) + 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -712,7 +744,11 @@ fn dec(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> 
 }
 
 /// Decrement X
-fn dex(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn dex(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   let result = (cpu.x as u16) - 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -723,7 +759,11 @@ fn dex(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Decrement Y
-fn dey(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn dey(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   let result = (cpu.y as u16) - 1;
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -796,7 +836,7 @@ fn ror(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> 
 /// Jumps & Calls
 
 /// Jump
-fn jmp(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
+fn jmp(cpu: &mut Processor, _bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
   cpu.pc = data.addr;
   InstructionResult {
     may_need_extra_cycle: false,
@@ -859,49 +899,53 @@ fn branch_if(condition: bool, cpu: &mut Processor, data: &DataSource) -> Instruc
 }
 
 /// Branch if Carry Clear
-fn bcc(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
+fn bcc(cpu: &mut Processor, _bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Carry) == 0, cpu, data)
 }
 
 /// Branch if Carry Set
-fn bcs(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
+fn bcs(cpu: &mut Processor, _bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Carry) != 0, cpu, data)
 }
 
 /// Branch if Equal
-fn beq(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
+fn beq(cpu: &mut Processor, _bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Zero) != 0, cpu, data)
 }
 
 /// Branch if Minus
-fn bmi(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
+fn bmi(cpu: &mut Processor, _bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Negative) != 0, cpu, data)
 }
 
 /// Branch if Positive
-fn bpl(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
+fn bpl(cpu: &mut Processor, _bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Negative) == 0, cpu, data)
 }
 
 /// Branch if Not Equal
-fn bne(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
+fn bne(cpu: &mut Processor, _bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Zero) == 0, cpu, data)
 }
 
 /// Branch if Overflow Clear
-fn bvc(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
+fn bvc(cpu: &mut Processor, _bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Overflow) == 0, cpu, data)
 }
 
 /// Branch if Overflow Set
-fn bvs(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
+fn bvs(cpu: &mut Processor, _bus: &mut dyn Bus<Processor>, data: &DataSource) -> InstructionResult {
   branch_if(cpu.get_status(Overflow) != 0, cpu, data)
 }
 
 // Status Flag Changes
 
 /// Clear carry
-fn clc(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn clc(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.set_status(Carry, false);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -909,7 +953,11 @@ fn clc(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Clear decimal mode
-fn cld(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn cld(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.set_status(DecimalMode, false);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -917,7 +965,11 @@ fn cld(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Clear interrupt disable
-fn cli(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn cli(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.set_status(DisableInterrupts, false);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -925,7 +977,11 @@ fn cli(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Clear overflow
-fn clv(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn clv(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.set_status(Overflow, false);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -933,7 +989,11 @@ fn clv(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Set carry
-fn sec(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn sec(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.set_status(Carry, true);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -941,7 +1001,11 @@ fn sec(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Set decimal mode
-fn sed(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn sed(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.set_status(DecimalMode, true);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -949,7 +1013,11 @@ fn sed(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 }
 
 /// Set interrupt disable
-fn sei(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) -> InstructionResult {
+fn sei(
+  cpu: &mut Processor,
+  _bus: &mut dyn Bus<Processor>,
+  _data: &DataSource,
+) -> InstructionResult {
   cpu.set_status(DisableInterrupts, true);
   InstructionResult {
     may_need_extra_cycle: false,
@@ -993,7 +1061,7 @@ fn rti(cpu: &mut Processor, bus: &mut dyn Bus<Processor>, _data: &DataSource) ->
 /// No operation
 fn nop(
   _cpu: &mut Processor,
-  bus: &mut dyn Bus<Processor>,
+  _bus: &mut dyn Bus<Processor>,
   _data: &DataSource,
 ) -> InstructionResult {
   // Do nothing.
@@ -1009,7 +1077,7 @@ fn nop(
 ///
 /// Nothing to do here, but some implied operations operate on the accumulator,
 /// so we fetch that data here
-fn imp(_cpu: &mut Processor, bus: &dyn Bus<Processor>) -> AddressingModeResult {
+fn imp(_cpu: &mut Processor, _bus: &dyn Bus<Processor>) -> AddressingModeResult {
   AddressingModeResult {
     data: DataSource {
       kind: Implicit,
@@ -1022,7 +1090,7 @@ fn imp(_cpu: &mut Processor, bus: &dyn Bus<Processor>) -> AddressingModeResult {
 /// Immediate addressing
 ///
 /// Read a byte directly from the current program counter
-fn imm(cpu: &mut Processor, bus: &dyn Bus<Processor>) -> AddressingModeResult {
+fn imm(cpu: &mut Processor, _bus: &dyn Bus<Processor>) -> AddressingModeResult {
   let addr_abs = cpu.pc;
   cpu.pc += 1;
 
@@ -1225,7 +1293,7 @@ fn izy(cpu: &mut Processor, bus: &dyn Bus<Processor>) -> AddressingModeResult {
 }
 
 /// Accumulator
-fn acc(_cpu: &mut Processor, bus: &dyn Bus<Processor>) -> AddressingModeResult {
+fn acc(_cpu: &mut Processor, _bus: &dyn Bus<Processor>) -> AddressingModeResult {
   AddressingModeResult {
     data: DataSource {
       kind: Accumulator,
