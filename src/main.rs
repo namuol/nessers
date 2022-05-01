@@ -97,7 +97,7 @@ impl Game for NESDebugger {
                 "src/test_fixtures/ntscpalette.pal",
             ) {
                 Ok(n) => n,
-                Err(msg) => panic!(msg),
+                Err(msg) => panic!("{}", msg),
             };
 
             let mut debugger_ui = NESDebugger {
