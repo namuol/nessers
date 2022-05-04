@@ -12,3 +12,7 @@ pub trait BusDeviceRange {
     addr >= start && (addr as usize) < (start as usize) + size
   }
 }
+
+pub fn in_range(start: u16, size: usize, addr: u16) -> bool {
+  addr >= start && (addr as usize) < (start as usize) + size
+}

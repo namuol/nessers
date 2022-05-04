@@ -78,10 +78,48 @@ impl BusDeviceRange for Ppu {
 
 // Not sure how to implement this yet 😅
 impl BusDevice for Ppu {
-  fn read(&self, _addr: u16) -> std::option::Option<u8> {
-    todo!()
+  // From `cpuRead` in
+  // https://www.youtube.com/watch?v=xdzOvpYPmGE&list=PLrOv9FMX8xJHqMvSGB_9G9nZZ_4IgteYf&index=4
+  fn read(&self, addr: u16) -> std::option::Option<u8> {
+    if !self.in_range(addr) {
+      return None;
+    }
+
+    let data: u8 = 0x00;
+
+    match addr {
+      0x0000 => {} // Control
+      0x0001 => {} // Mask
+      0x0002 => {} // Status
+      0x0003 => {} // OAM Address
+      0x0004 => {} // OAM Data
+      0x0005 => {} // Scroll
+      0x0006 => {} // PPU Address
+      0x0007 => {} // PPU Data
+      _ => {}
+    }
+
+    Some(data)
   }
-  fn write(&mut self, _addr: u16, _data: u8) -> std::option::Option<()> {
-    todo!()
+
+  // From `cpuWrite` in https://www.youtube.com/watch?v=xdzOvpYPmGE&list=PLrOv9FMX8xJHqMvSGB_9G9nZZ_4IgteYf&index=4
+  fn write(&mut self, addr: u16, _data: u8) -> std::option::Option<()> {
+    if !self.in_range(addr) {
+      return None;
+    }
+
+    match addr {
+      0x0000 => {} // Control
+      0x0001 => {} // Mask
+      0x0002 => {} // Status
+      0x0003 => {} // OAM Address
+      0x0004 => {} // OAM Data
+      0x0005 => {} // Scroll
+      0x0006 => {} // PPU Address
+      0x0007 => {} // PPU Data
+      _ => {}
+    }
+
+    Some(())
   }
 }

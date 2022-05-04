@@ -1,6 +1,7 @@
-use crate::bus::{Bus, DeviceList};
+use crate::bus::Bus;
+use crate::bus_device::{BusDevice, BusDeviceRange};
 use crate::cart::Cart;
-use crate::cpu6502::Processor;
+use crate::cpu6502::Cpu;
 use crate::mirror::Mirror;
 use crate::palette::{Color, Palette};
 use crate::ppu::Ppu;
@@ -8,58 +9,43 @@ use crate::ram::Ram;
 
 pub struct Nes {
   tick: u64,
-  pub cpu: Processor,
+  pub ram: Ram,
+  ram_mirror: Mirror,
+  pub cpu: Cpu,
   pub ppu: Ppu,
-  pub cpu_devices: DeviceList,
-  pub ppu_devices: DeviceList,
+  ppu_mirror: Mirror,
+  pub cart: Cart,
 }
 
 impl Nes {
   pub fn new(cart_filename: &str, palette_filename: &str) -> Result<Nes, &'static str> {
-    let cart = match Cart::from_file(cart_filename) {
-      Ok(c) => c,
-      Err(msg) => return Err(msg),
-    };
-
-    let ppu = match Palette::from_file(palette_filename) {
-      Ok(palette) => Ppu::new(palette),
-      Err(msg) => return Err(msg),
-    };
-
-    let ppu_registers = Box::new(Ram::new(0x2000, 8));
-
-    let cpu_devices: DeviceList = vec![
-      // Cartridge
-      Box::new(cart),
-      // 2K internal RAM, mirrored to 8K
-      Box::new(Mirror::new(
-        0x0000,
-        Box::new(Ram::new(0x0000, 2 * 1024)),
-        8 * 1024,
-      )),
-      // PPU Registers, mirrored for 8K
-      Box::new(Mirror::new(0x2000, ppu_registers, 8 * 1024)),
-      // APU & I/O Registers
-      Box::new(Ram::new(0x4000, 0x18)),
-      // APU & I/O functionality that is normally disabled
-      Box::new(Ram::new(0x4018, 0x08)),
-    ];
-
-    let ppu_devices: DeviceList = vec![];
+    let cpu = Cpu::new();
+    let ppu = Ppu::new(Palette::from_file(palette_filename)?);
+    let ppu_mirror = Mirror::new(0x2000, 8 * 1024);
+    let cart = Cart::from_file(cart_filename)?;
+    // 2K internal RAM, mirrored to 8K
+    let ram = Ram::new(0x0000, 2 * 1024);
+    let ram_mirror = Mirror::new(0x0000, 8 * 1024);
 
     Ok(Nes {
       tick: 0,
+      cpu,
       ppu,
-      cpu: Processor::new(),
-      cpu_devices,
-      ppu_devices,
+      cart,
+      ram_mirror,
+      ram,
+      ppu_mirror,
     })
   }
 
   pub fn clock(&mut self) {
     self.ppu.clock();
     if self.tick % 3 == 0 {
-      self.cpu.clock(&mut self.cpu_devices);
+      // Is there a shorthand way to run a method on a field by cloning it and
+      // replacing its value with the cloned object?
+      let cpu = &mut self.cpu.clone();
+      cpu.clock(self);
+      self.cpu = *cpu;
     }
     self.tick += 1;
   }
@@ -95,12 +81,8 @@ impl Nes {
         // Each tile is 8x8 pixels
         for row in 0..8 {
           // A full pattern table is 4KB, or 0x1000
-          let mut tile_lsb = self
-            .ppu_devices
-            .read(table_number * 0x1000 + offset + row + 0);
-          let mut tile_msb = self
-            .ppu_devices
-            .read(table_number * 0x1000 + offset + row + 8);
+          let mut tile_lsb = self.ppu_read(table_number * 0x1000 + offset + row + 0);
+          let mut tile_msb = self.ppu_read(table_number * 0x1000 + offset + row + 8);
           let pixel_y = (tile_y * 8) + row;
 
           for col in 0..8 {
@@ -134,9 +116,96 @@ impl Nes {
   }
 
   pub fn get_color_from_palette_ram(&self, palette: u8, pixel: u8) -> Color {
-    let idx = self
-      .ppu_devices
-      .read(0x3F00 as u16 + ((palette << 2) + pixel) as u16);
+    let idx = self.ppu_read(0x3F00 as u16 + ((palette << 2) + pixel) as u16);
     self.ppu.palette.colors[idx as usize]
+  }
+
+  pub fn reset(&mut self) {
+    let cpu = &mut self.cpu.clone();
+    cpu.sig_reset(self);
+    self.cpu = *cpu;
+  }
+
+  // BEGIN ------ Hacky? Helper functions to avoid ugly manual dyn cast -------
+
+  pub fn cpu_read(&self, addr: u16) -> u8 {
+    (self as &dyn Bus<Cpu>).read(addr)
+  }
+
+  pub fn cpu_read16(&self, addr: u16) -> u16 {
+    (self as &dyn Bus<Cpu>).read16(addr)
+  }
+
+  pub fn ppu_read(&self, addr: u16) -> u8 {
+    (self as &dyn Bus<Ppu>).read(addr)
+  }
+
+  pub fn ppu_read16(&self, addr: u16) -> u16 {
+    (self as &dyn Bus<Ppu>).read16(addr)
+  }
+
+  // END -------- Hacky? Helper functions to avoid ugly manual dyn cast -------
+}
+
+impl Bus<Cpu> for Nes {
+  fn read(&self, addr: u16) -> u8 {
+    // let cpu_devices: DeviceList = vec![
+    //   // Cartridge
+    //   Box::new(cart),
+    //   // 2K internal RAM, mirrored to 8K
+    //   Box::new(Mirror::new(
+    //     0x0000,
+    //     Box::new(Ram::new(0x0000, 2 * 1024)),
+    //     8 * 1024,
+    //   )),
+    //   // PPU Registers, mirrored for 8K
+    //   Box::new(Mirror::new(0x2000, Box::new(ppu), 8 * 1024)),
+    //   // APU & I/O Registers
+    //   Box::new(Ram::new(0x4000, 0x18)),
+    //   // APU & I/O functionality that is normally disabled
+    //   Box::new(Ram::new(0x4018, 0x08)),
+    // ];
+
+    match None // Hehe, using None here just for formatting purposes:
+      .or(self.cart.read(addr))
+      .or(self.ram_mirror.read(&self.ram, addr))
+      .or(self.ppu_mirror.read(&self.ppu, addr))
+    {
+      Some(data) => data,
+      None => 0x00,
+    }
+  }
+
+  fn write(&mut self, addr: u16, data: u8) {
+    // let cpu_devices: DeviceList = vec![
+    //   // Cartridge
+    //   Box::new(cart),
+    //   // 2K internal RAM, mirrored to 8K
+    //   Box::new(Mirror::new(
+    //     0x0000,
+    //     Box::new(Ram::new(0x0000, 2 * 1024)),
+    //     8 * 1024,
+    //   )),
+    //   // PPU Registers, mirrored for 8K
+    //   Box::new(Mirror::new(0x2000, Box::new(ppu), 8 * 1024)),
+    //   // APU & I/O Registers
+    //   Box::new(Ram::new(0x4000, 0x18)),
+    //   // APU & I/O functionality that is normally disabled
+    //   Box::new(Ram::new(0x4018, 0x08)),
+    // ];
+    None // Hehe, using None here just for formatting purposes:
+      .or_else(|| self.cart.write(addr, data))
+      .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data))
+      .or_else(|| self.ppu_mirror.write(&mut self.ppu, addr, data));
+  }
+}
+
+impl Bus<Ppu> for Nes {
+  fn read(&self, _addr: u16) -> u8 {
+    0x00
+  }
+
+  fn write(&mut self, _addr: u16, _data: u8) {
+    // todo!()
   }
 }

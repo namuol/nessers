@@ -9,7 +9,7 @@ const HEADER_START: [u8; 4] = [
   0x1A, // EOF
 ];
 
-#[derive(PartialEq, Debug)]
+#[allow(dead_code)]
 pub struct Cart {
   prg: Vec<u8>,
   chr: Vec<u8>,
@@ -180,18 +180,13 @@ mod tests {
     data.resize(16 + 0 + 16 * 1024 + 8 * 1024, 0x43);
 
     match Cart::new(&data) {
-      Ok(header) => {
-        assert_eq!(
-          header,
-          Cart {
-            prg: vec![0x42; 16 * 1024],
-            chr: vec![0x43; 8 * 1024],
-            mirroring: Mirroring::Horizontal,
-            has_ram: false,
-            has_trainer: false,
-            mapper_code: 0x11,
-          }
-        );
+      Ok(cart) => {
+        assert_eq!(cart.prg, vec![0x42; 16 * 1024]);
+        assert_eq!(cart.chr, vec![0x43; 8 * 1024]);
+        assert_eq!(cart.mirroring, Mirroring::Horizontal);
+        assert_eq!(cart.has_ram, true);
+        assert_eq!(cart.has_trainer, false);
+        assert_eq!(cart.mapper_code, 0x11);
       }
       Err(msg) => {
         panic!(
