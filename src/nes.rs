@@ -1,5 +1,5 @@
 use crate::bus::Bus;
-use crate::bus_device::{BusDevice, BusDeviceRange};
+use crate::bus_device::BusDevice;
 use crate::cart::Cart;
 use crate::cpu6502::Cpu;
 use crate::mirror::Mirror;
@@ -206,6 +206,6 @@ impl Bus<Ppu> for Nes {
   }
 
   fn write(&mut self, _addr: u16, _data: u8) {
-    // todo!()
+    todo!()
   }
 }

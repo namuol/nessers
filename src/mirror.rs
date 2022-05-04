@@ -1,4 +1,4 @@
-use crate::bus_device::{in_range, BusDevice, BusDeviceRange};
+use crate::bus_device::{BusDevice, BusDeviceRange};
 
 pub trait RangedBusDevice: BusDevice + BusDeviceRange {}
 impl<T> RangedBusDevice for T where T: BusDevice + BusDeviceRange {}
