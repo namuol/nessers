@@ -40,7 +40,7 @@ mod tests {
 
   #[test]
   fn ram_mirror() {
-    let ram = Ram::new(0x0000, 32 * 1024);
+    let mut ram = Ram::new(0x0000, 32 * 1024);
     let mut mirror = Mirror::new(0x0000, 2 * 32 * 1024);
     mirror.write(&mut ram, 0x0000, 42);
     assert_eq!(mirror.read(&ram, 0x8000), Some(42));
