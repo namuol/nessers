@@ -9,12 +9,12 @@ use crate::ram::Ram;
 
 pub struct Nes {
   tick: u64,
-  pub ram: Ram,
+  ram: Ram,
   ram_mirror: Mirror,
   pub cpu: Cpu,
   pub ppu: Ppu,
   ppu_mirror: Mirror,
-  pub cart: Cart,
+  cart: Cart,
 }
 
 impl Nes {
