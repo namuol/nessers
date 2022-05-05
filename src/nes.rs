@@ -8,11 +8,11 @@ use crate::ppu::Ppu;
 use crate::ram::Ram;
 
 pub struct Nes {
+  pub cpu: Cpu,
+  pub ppu: Ppu,
   tick: u64,
   ram: Ram,
   ram_mirror: Mirror,
-  pub cpu: Cpu,
-  pub ppu: Ppu,
   ppu_mirror: Mirror,
   cart: Cart,
 }
@@ -20,12 +20,16 @@ pub struct Nes {
 impl Nes {
   pub fn new(cart_filename: &str, palette_filename: &str) -> Result<Nes, &'static str> {
     let cpu = Cpu::new();
+
+    // PPU Registers, mirrored for 8K
     let ppu = Ppu::new(Palette::from_file(palette_filename)?);
     let ppu_mirror = Mirror::new(0x2000, 8 * 1024);
-    let cart = Cart::from_file(cart_filename)?;
+
     // 2K internal RAM, mirrored to 8K
     let ram = Ram::new(0x0000, 2 * 1024);
     let ram_mirror = Mirror::new(0x0000, 8 * 1024);
+
+    let cart = Cart::from_file(cart_filename)?;
 
     Ok(Nes {
       tick: 0,
@@ -147,6 +151,7 @@ impl Nes {
   // END -------- Hacky? Helper functions to avoid ugly manual dyn cast -------
 }
 
+/// The CPU's Bus
 impl Bus<Cpu> for Nes {
   fn read(&self, addr: u16) -> u8 {
     // let cpu_devices: DeviceList = vec![
@@ -200,6 +205,7 @@ impl Bus<Cpu> for Nes {
   }
 }
 
+/// The PPU's Bus
 impl Bus<Ppu> for Nes {
   fn read(&self, _addr: u16) -> u8 {
     0x00
