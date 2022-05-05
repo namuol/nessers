@@ -11,17 +11,27 @@ const HEADER_START: [u8; 4] = [
 
 #[allow(dead_code)]
 pub struct Cart {
-  prg: Vec<u8>,
   chr: Vec<u8>,
   mirroring: Mirroring,
   has_ram: bool,
   has_trainer: bool,
   mapper_code: u8,
+  pub cpu_mapper: CartCpuMapper,
+  pub ppu_mapper: CartPpuMapper,
 }
 #[derive(PartialEq, Debug)]
 pub enum Mirroring {
   Horizontal,
   Vertical,
+}
+
+pub struct CartCpuMapper {
+  prg: Vec<u8>,
+  mapper_code: u8,
+}
+
+pub struct CartPpuMapper {
+  mapper_code: u8,
 }
 
 const HEADER_SIZE: usize = 16;
@@ -76,13 +86,19 @@ impl Cart {
       return Err("File is too small to contain ROM data");
     }
 
+    let mapper_code = mapper_code_hi | (mapper_code_lo >> 4);
+
     Ok(Cart {
-      prg: data[prg_start..prg_start + prg_size].to_vec(),
       chr: data[chr_start..chr_start + chr_size].to_vec(),
       mirroring,
       has_ram,
       has_trainer,
-      mapper_code: (mapper_code_hi | (mapper_code_lo >> 4)),
+      ppu_mapper: CartPpuMapper { mapper_code },
+      cpu_mapper: CartCpuMapper {
+        mapper_code,
+        prg: data[prg_start..prg_start + prg_size].to_vec(),
+      },
+      mapper_code,
     })
   }
 
@@ -92,7 +108,7 @@ impl Cart {
   }
 }
 
-impl BusDeviceRange for Cart {
+impl BusDeviceRange for CartCpuMapper {
   fn size(&self) -> usize {
     match self.mapper_code {
       0 => self.prg.len() * 2,
@@ -107,7 +123,7 @@ impl BusDeviceRange for Cart {
   }
 }
 
-impl BusDevice for Cart {
+impl BusDevice for CartCpuMapper {
   fn write(&mut self, addr: u16, data: u8) -> Option<()> {
     let start = self.start() as usize;
     let len = self.prg.len();
@@ -181,7 +197,7 @@ mod tests {
 
     match Cart::new(&data) {
       Ok(cart) => {
-        assert_eq!(cart.prg, vec![0x42; 16 * 1024]);
+        assert_eq!(cart.cpu_mapper.prg, vec![0x42; 16 * 1024]);
         assert_eq!(cart.chr, vec![0x43; 8 * 1024]);
         assert_eq!(cart.mirroring, Mirroring::Horizontal);
         assert_eq!(cart.has_ram, true);

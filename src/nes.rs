@@ -74,19 +74,19 @@ impl Nes {
 
   /// In order to render the pattern table, we need to understand how pattern
   /// data is structured in memory.
-  /// 
+  ///
   /// On the NES, each pixel of a sprite is 2 bits, allowing up to 4 unique
   /// colors (including 0 which is always "transparent").
-  /// 
+  ///
   /// A tile consists of an 8x8 grid of 2-bit pixels.
-  /// 
+  ///
   /// It can help to picture a tile as something like this:
   ///
   /// ```
   /// 0, 1, 2, 3, 3, 2, 1, 0
   /// ...7 more rows like this...
   /// ```
-  /// 
+  ///
   /// You might at first assume that these pixels are stored in the following
   /// way in memory (it'll be clear why I'm using binary notation here later):
   ///
@@ -95,56 +95,56 @@ impl Nes {
   /// 0b00, 0b01, 0b10, 0b11, 0b11, 0b10, 0b01, 0b00
   /// ...7 more rows like this...
   /// ```
-  /// 
+  ///
   /// Written in _bytes_ (the unit we're used to reading one at a time) this
   /// would look like this:
-  /// 
+  ///
   /// ```
   ///   0,1,2,3,    3,2,1,0
   /// 0b00011011, 0b11100100
   /// ...7 more rows like this...
   /// ```
-  /// 
+  ///
   /// So in this form, a tile would be a sequence of 64 * 2-bit pixels, or 128
   /// bits = 16 bytes.
-  /// 
+  ///
   /// This might seem fine and intuitive, until you actually go to _read_ the
   /// pixel at a specific coordinate within the data.
-  /// 
+  ///
   /// For instance, let's say we wanted to get the pixel at x=3, y=3.
-  /// 
+  ///
   /// We would first need to determine which _byte_ to read since I can only
   /// read one byte at a time.
-  /// 
+  ///
   /// Then we'd need to perform some bit-operations on the byte to mask out the
   /// bits that aren't important to us, and then _finally_ we'd need to _shift_
   /// the bits such that only the 2-bit pixel we care about is selected.
-  /// 
+  ///
   /// There's a better way: Bit-planes!
   ///
   /// Since our pixels are 2 bits each, we can _split_ our 8x8 2-bit grid in
   /// half such that the 8 bytes correspond to the _least significant bit_ of
   /// each of the 8x8=64 bits in the tile, and the next 8x8=64 bits correspond
   /// to the _most significant bit_ of each pixel in the tile.
-  /// 
+  ///
   /// Concretely, the first 8 pixels (`0, 1, 2, 3, 3, 2, 1, 0`) could be
   /// represented like this in the pattern table memory:
-  /// 
+  ///
   /// ```
   ///       2-bit number:  0   1   2   3   3   2   1   0
   ///      binary number: 00  01  10  11  11  10  01  00
   /// lsb (offset by  0):  0,  1,  0,  1,  1,  0,  1,  0
   ///                     ...rest of the lsb tile rows...
-  /// msb (offset by 64): 0 , 0 , 1 , 1 , 1 , 1 , 0 , 0 
+  /// msb (offset by 64): 0 , 0 , 1 , 1 , 1 , 1 , 0 , 0
   ///                     ...rest of the msb tile rows...
   /// ```
-  /// 
+  ///
   /// So now if we want to render a tile, we can simply read two bytes at a time
   /// for each 8-pixel wide row of pixels, and to determine the 2-bit color of
   /// each column, we can mask all but the last bit from each byte we read and
-  /// add them together appropriately (0b0<lsb> + 0b<msb>0) to get our 2-bit
-  /// color palette index.
-  /// 
+  /// add them together appropriately (0b0<lsb> & 0b<msb>0, or more easily
+  /// 0x0<lsb> + 0x0<msb>) to get our 2-bit color palette index.
+  ///
   /// Whew!
   pub fn render_pattern_table(&self, table_number: u16, palette: u8) -> [[u8; 4]; 128 * 128] {
     let mut result = [[0x00, 0x00, 0x00, 0xFF]; 128 * 128];
@@ -159,9 +159,12 @@ impl Nes {
         // Each tile is 8x8 pixels
         for row in 0..8 {
           // A full pattern table is 4KB, or 0x1000
+
+          // Least-significant bit starts at our offset + 0 bytes:
           let mut tile_lsb = self.ppu_read(table_number * 0x1000 + offset + row + 0);
+          // Least-significant bit starts at our offset + 8 bytes; one byte per
+          // row of pixels in the tile, to skip over the LSB plane:
           let mut tile_msb = self.ppu_read(table_number * 0x1000 + offset + row + 8);
-          let pixel_y = (tile_y * 8) + row;
 
           for col in 0..8 {
             // A 2 bit number; 0, 1, or 2
@@ -171,20 +174,21 @@ impl Nes {
             let pixel_color_index = (tile_lsb & 0x01) + (tile_msb & 0x01);
             let color = self.get_color_from_palette_ram(palette, pixel_color_index);
 
+            // Our pixels are laid out right-to-left in terms of
+            // bit-significance, so we _subtract_ our col number from the
+            // right-most edge of our tile:
+            let pixel_x = (tile_x * 8) + (7 - col);
+            let pixel_y = (tile_y * 8) + row;
+            let pixel_idx = (pixel_y * 128 + pixel_x) as usize;
+            result[pixel_idx][0] = color.r;
+            result[pixel_idx][1] = color.g;
+            result[pixel_idx][2] = color.b;
+
             // For our next column, we just need to look at the _next_ bit in
             // our least/most significant bytes. To achieve this, all we need to
             // do is shift them right one bit:
             tile_lsb >>= 1;
             tile_msb >>= 1;
-            // Our pixels are laid out right-to-left in terms of
-            // bit-significance, so we _subtract_ our col number from the
-            // right-most edge of our tile:
-            let pixel_x = (tile_x * 8) + (7 - col);
-
-            let pixel_idx = (pixel_y * 128 + pixel_x) as usize;
-            result[pixel_idx][0] = color.r;
-            result[pixel_idx][1] = color.g;
-            result[pixel_idx][2] = color.b;
           }
         }
       }
@@ -248,7 +252,7 @@ impl Bus<Cpu> for Nes {
     // ```
 
     match None // Hehe, using None here just for formatting purposes:
-      .or(self.cart.read(addr))
+      .or(self.cart.cpu_mapper.read(addr))
       .or(self.ram_mirror.read(&self.ram, addr))
       .or(self.ppu_mirror.read(&self.ppu, addr))
     {
@@ -277,7 +281,7 @@ impl Bus<Cpu> for Nes {
     // ];
     // ```
     None // Hehe, using None here just for formatting purposes:
-      .or_else(|| self.cart.write(addr, data))
+      .or_else(|| self.cart.cpu_mapper.write(addr, data))
       .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data))
       .or_else(|| self.ppu_mirror.write(&mut self.ppu, addr, data));
   }
