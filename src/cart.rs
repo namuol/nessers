@@ -11,11 +11,9 @@ const HEADER_START: [u8; 4] = [
 
 #[allow(dead_code)]
 pub struct Cart {
-  chr: Vec<u8>,
   mirroring: Mirroring,
   has_ram: bool,
   has_trainer: bool,
-  mapper_code: u8,
   pub cpu_mapper: CartCpuMapper,
   pub ppu_mapper: CartPpuMapper,
 }
@@ -31,6 +29,7 @@ pub struct CartCpuMapper {
 }
 
 pub struct CartPpuMapper {
+  chr: Vec<u8>,
   mapper_code: u8,
 }
 
@@ -89,16 +88,17 @@ impl Cart {
     let mapper_code = mapper_code_hi | (mapper_code_lo >> 4);
 
     Ok(Cart {
-      chr: data[chr_start..chr_start + chr_size].to_vec(),
       mirroring,
       has_ram,
       has_trainer,
-      ppu_mapper: CartPpuMapper { mapper_code },
+      ppu_mapper: CartPpuMapper {
+        mapper_code,
+        chr: data[chr_start..chr_start + chr_size].to_vec(),
+      },
       cpu_mapper: CartCpuMapper {
         mapper_code,
         prg: data[prg_start..prg_start + prg_size].to_vec(),
       },
-      mapper_code,
     })
   }
 
@@ -198,11 +198,12 @@ mod tests {
     match Cart::new(&data) {
       Ok(cart) => {
         assert_eq!(cart.cpu_mapper.prg, vec![0x42; 16 * 1024]);
-        assert_eq!(cart.chr, vec![0x43; 8 * 1024]);
+        assert_eq!(cart.ppu_mapper.chr, vec![0x43; 8 * 1024]);
         assert_eq!(cart.mirroring, Mirroring::Horizontal);
         assert_eq!(cart.has_ram, true);
         assert_eq!(cart.has_trainer, false);
-        assert_eq!(cart.mapper_code, 0x11);
+        assert_eq!(cart.ppu_mapper.mapper_code, 0x11);
+        assert_eq!(cart.cpu_mapper.mapper_code, 0x11);
       }
       Err(msg) => {
         panic!(
