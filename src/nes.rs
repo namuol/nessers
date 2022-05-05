@@ -228,6 +228,7 @@ impl Nes {
 /// The CPU's Bus
 impl Bus<Cpu> for Nes {
   fn read(&self, addr: u16) -> u8 {
+    // ```
     // let cpu_devices: DeviceList = vec![
     //   // Cartridge
     //   Box::new(cart),
@@ -244,6 +245,7 @@ impl Bus<Cpu> for Nes {
     //   // APU & I/O functionality that is normally disabled
     //   Box::new(Ram::new(0x4018, 0x08)),
     // ];
+    // ```
 
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.read(addr))
@@ -256,6 +258,7 @@ impl Bus<Cpu> for Nes {
   }
 
   fn write(&mut self, addr: u16, data: u8) {
+    // ```
     // let cpu_devices: DeviceList = vec![
     //   // Cartridge
     //   Box::new(cart),
@@ -272,6 +275,7 @@ impl Bus<Cpu> for Nes {
     //   // APU & I/O functionality that is normally disabled
     //   Box::new(Ram::new(0x4018, 0x08)),
     // ];
+    // ```
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.write(addr, data))
       .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data))
