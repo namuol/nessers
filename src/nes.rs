@@ -72,6 +72,80 @@ impl Nes {
     }
   }
 
+  /// In order to render the pattern table, we need to understand how pattern
+  /// data is structured in memory.
+  /// 
+  /// On the NES, each pixel of a sprite is 2 bits, allowing up to 4 unique
+  /// colors (including 0 which is always "transparent").
+  /// 
+  /// A tile consists of an 8x8 grid of 2-bit pixels.
+  /// 
+  /// It can help to picture a tile as something like this:
+  ///
+  /// ```
+  /// 0, 1, 2, 3, 3, 2, 1, 0
+  /// ...7 more rows like this...
+  /// ```
+  /// 
+  /// You might at first assume that these pixels are stored in the following
+  /// way in memory (it'll be clear why I'm using binary notation here later):
+  ///
+  /// ```
+  /// 0,    1,    2,    3,    3,    2,    1,    0
+  /// 0b00, 0b01, 0b10, 0b11, 0b11, 0b10, 0b01, 0b00
+  /// ...7 more rows like this...
+  /// ```
+  /// 
+  /// Written in _bytes_ (the unit we're used to reading one at a time) this
+  /// would look like this:
+  /// 
+  /// ```
+  ///   0,1,2,3,    3,2,1,0
+  /// 0b00011011, 0b11100100
+  /// ...7 more rows like this...
+  /// ```
+  /// 
+  /// So in this form, a tile would be a sequence of 64 * 2-bit pixels, or 128
+  /// bits = 16 bytes.
+  /// 
+  /// This might seem fine and intuitive, until you actually go to _read_ the
+  /// pixel at a specific coordinate within the data.
+  /// 
+  /// For instance, let's say we wanted to get the pixel at x=3, y=3.
+  /// 
+  /// We would first need to determine which _byte_ to read since I can only
+  /// read one byte at a time.
+  /// 
+  /// Then we'd need to perform some bit-operations on the byte to mask out the
+  /// bits that aren't important to us, and then _finally_ we'd need to _shift_
+  /// the bits such that only the 2-bit pixel we care about is selected.
+  /// 
+  /// There's a better way: Bit-planes!
+  ///
+  /// Since our pixels are 2 bits each, we can _split_ our 8x8 2-bit grid in
+  /// half such that the 8 bytes correspond to the _least significant bit_ of
+  /// each of the 8x8=64 bits in the tile, and the next 8x8=64 bits correspond
+  /// to the _most significant bit_ of each pixel in the tile.
+  /// 
+  /// Concretely, the first 8 pixels (`0, 1, 2, 3, 3, 2, 1, 0`) could be
+  /// represented like this in the pattern table memory:
+  /// 
+  /// ```
+  ///       2-bit number:  0   1   2   3   3   2   1   0
+  ///      binary number: 00  01  10  11  11  10  01  00
+  /// lsb (offset by  0):  0,  1,  0,  1,  1,  0,  1,  0
+  ///                     ...rest of the lsb tile rows...
+  /// msb (offset by 64): 0 , 0 , 1 , 1 , 1 , 1 , 0 , 0 
+  ///                     ...rest of the msb tile rows...
+  /// ```
+  /// 
+  /// So now if we want to render a tile, we can simply read two bytes at a time
+  /// for each 8-pixel wide row of pixels, and to determine the 2-bit color of
+  /// each column, we can mask all but the last bit from each byte we read and
+  /// add them together appropriately (0b0<lsb> + 0b<msb>0) to get our 2-bit
+  /// color palette index.
+  /// 
+  /// Whew!
   pub fn render_pattern_table(&self, table_number: u16, palette: u8) -> [[u8; 4]; 128 * 128] {
     let mut result = [[0x00, 0x00, 0x00, 0xFF]; 128 * 128];
     // We want to render 16x16 tiles
