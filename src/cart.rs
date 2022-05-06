@@ -1,7 +1,7 @@
 use std::fs;
 
 use crate::bus_device::BusDevice;
-use crate::mapper::MAPPERS;
+use crate::mapper::{Mapper, MAPPERS};
 
 const HEADER_START: [u8; 4] = [
   0x4E, // N
@@ -28,12 +28,14 @@ pub struct CartCpuMapper {
   num_prg_banks: usize,
   prg: Vec<u8>,
   mapper_code: u8,
+  mapper: Mapper,
 }
 
 pub struct CartPpuMapper {
   num_chr_banks: usize,
   chr: Vec<u8>,
   mapper_code: u8,
+  mapper: Mapper,
 }
 
 const HEADER_SIZE: usize = 16;
@@ -98,11 +100,13 @@ impl Cart {
       has_trainer,
       ppu_mapper: CartPpuMapper {
         mapper_code,
+        mapper: MAPPERS[mapper_code as usize].clone(),
         num_chr_banks,
         chr: data[chr_start..chr_start + chr_size].to_vec(),
       },
       cpu_mapper: CartCpuMapper {
         mapper_code,
+        mapper: MAPPERS[mapper_code as usize].clone(),
         num_prg_banks,
         prg: data[prg_start..prg_start + prg_size].to_vec(),
       },
@@ -116,26 +120,26 @@ impl Cart {
 }
 
 impl BusDevice for CartCpuMapper {
+  fn read(&self, addr: u16) -> Option<u8> {
+    let mapped_addr = (self.mapper.cpu_read)(addr, self.num_prg_banks)?;
+    Some(self.prg[mapped_addr as usize])
+  }
   fn write(&mut self, addr: u16, data: u8) -> Option<()> {
-    let mapped_addr = (MAPPERS[self.mapper_code as usize].cpu)(addr)?;
+    let mapped_addr = (self.mapper.cpu_write)(addr, self.num_prg_banks)?;
     self.prg[mapped_addr as usize] = data;
     Some(())
-  }
-  fn read(&self, addr: u16) -> Option<u8> {
-    let mapped_addr = (MAPPERS[self.mapper_code as usize].cpu)(addr)?;
-    Some(self.prg[mapped_addr as usize])
   }
 }
 
 impl BusDevice for CartPpuMapper {
+  fn read(&self, addr: u16) -> Option<u8> {
+    let mapped_addr = (self.mapper.ppu_read)(addr, self.num_chr_banks)?;
+    Some(self.chr[mapped_addr as usize])
+  }
   fn write(&mut self, addr: u16, data: u8) -> Option<()> {
-    let mapped_addr = (MAPPERS[self.mapper_code as usize].ppu)(addr)?;
+    let mapped_addr = (self.mapper.ppu_write)(addr, self.num_chr_banks)?;
     self.chr[mapped_addr as usize] = data;
     Some(())
-  }
-  fn read(&self, addr: u16) -> Option<u8> {
-    let mapped_addr = (MAPPERS[self.mapper_code as usize].ppu)(addr)?;
-    Some(self.chr[mapped_addr as usize])
   }
 }
 

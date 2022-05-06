@@ -4,7 +4,7 @@ extern crate maplit;
 use coffee::graphics::{Color, Frame, Gpu, Window, WindowSettings};
 use coffee::input::{self, keyboard, Input};
 use coffee::load::Task;
-use coffee::ui::{Column, Element, Image, Renderer, Row, Text, UserInterface};
+use coffee::ui::{Align, Column, Element, Image, Justify, Renderer, Row, Text, UserInterface};
 use coffee::{Game, Result, Timer};
 use std::collections::HashSet;
 
@@ -13,12 +13,12 @@ pub mod bus_device;
 pub mod cart;
 pub mod cpu6502;
 pub mod disassemble;
+pub mod mapper;
 pub mod mirror;
 pub mod nes;
 pub mod palette;
 pub mod ppu;
 pub mod ram;
-pub mod mapper;
 
 use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;
@@ -37,7 +37,8 @@ fn main() -> Result<()> {
 
 struct NESDebugger {
   screen_img: Option<coffee::graphics::Image>,
-  pattern_table_img: Option<coffee::graphics::Image>,
+  pattern_table_0_img: Option<coffee::graphics::Image>,
+  pattern_table_1_img: Option<coffee::graphics::Image>,
   nes: Nes,
 }
 
@@ -102,7 +103,8 @@ impl Game for NESDebugger {
 
       let mut debugger_ui = NESDebugger {
         screen_img: None,
-        pattern_table_img: None,
+        pattern_table_0_img: None,
+        pattern_table_1_img: None,
         nes,
       };
       debugger_ui.nes.reset();
@@ -140,8 +142,10 @@ impl Game for NESDebugger {
     self.screen_img = Some(from_screen(window.gpu(), &self.nes.ppu.screen).unwrap());
 
     // Get the pattern table image:
-    self.pattern_table_img =
+    self.pattern_table_0_img =
       Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(0, 0)).unwrap());
+    self.pattern_table_1_img =
+      Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(1, 0)).unwrap());
   }
 }
 
@@ -301,12 +305,17 @@ impl UserInterface for NESDebugger {
       None => ui,
     };
 
-    ui = match &self.pattern_table_img {
-      Some(img) => ui
-        // .push(Text::new("Pattern:").size(30))
-        .push(Image::new(&img)),
-      None => ui,
+    let mut tables = Column::new().height(window.height() as u32);
+    tables = match &self.pattern_table_0_img {
+      Some(img) => tables.push(Image::new(&img)),
+      None => tables,
     };
+    tables = match &self.pattern_table_1_img {
+      Some(img) => tables.push(Image::new(&img)),
+      None => tables,
+    };
+
+    ui = ui.push(tables);
 
     ui.into()
   }
