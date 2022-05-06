@@ -86,12 +86,12 @@ impl Cpu {
 
   fn push(&mut self, bus: &mut dyn Bus<Cpu>, data: u8) {
     bus.write(STACK_START + (self.s as u16), data);
-    self.s -= 1;
+    self.s = self.s.wrapping_sub(1);
   }
 
-  fn pull(&mut self, bus: &dyn Bus<Cpu>) -> u8 {
+  fn pull(&mut self, bus: &mut dyn Bus<Cpu>) -> u8 {
     let data = bus.read(STACK_START + (self.s as u16));
-    self.s += 1;
+    self.s = self.s.wrapping_add(1);
     data
   }
 
@@ -189,7 +189,7 @@ impl Cpu {
   }
 
   // SIGNALS:
-  pub fn sig_reset(&mut self, bus: &dyn Bus<Cpu>) {
+  pub fn sig_reset(&mut self, bus: &mut dyn Bus<Cpu>) {
     self.a = 0x00;
     self.x = 0x00;
     self.y = 0x00;
@@ -251,7 +251,7 @@ struct DataSource {
 }
 
 impl DataSource {
-  pub fn read(&self, cpu: &Cpu, bus: &dyn Bus<Cpu>) -> u8 {
+  pub fn read(&self, cpu: &Cpu, bus: &mut dyn Bus<Cpu>) -> u8 {
     match self.kind {
       Accumulator => cpu.a,
       AbsoluteAddress => bus.read(self.addr),
@@ -277,7 +277,7 @@ pub struct AddressingModeResult {
 /// instruction, either in the form of a constant, read-only byte value (`data`)
 /// or an absolute address from which the data can be retrieved/written to
 /// (`addr_abs`)
-type AddressingModeImplementation = fn(&mut Cpu, &dyn Bus<Cpu>) -> AddressingModeResult;
+type AddressingModeImplementation = fn(&mut Cpu, &mut dyn Bus<Cpu>) -> AddressingModeResult;
 pub enum AddressingMode {
   IMP,
   IMM,
@@ -624,7 +624,7 @@ fn sbc(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 fn cmp(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let a = cpu.a as u16;
   let m = data.read(cpu, bus) as u16;
-  let result = a - m;
+  let result = a.wrapping_sub(m);
   cpu.set_status(Carry, a >= m);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -637,7 +637,7 @@ fn cmp(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 fn cpx(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let x = cpu.x as u16;
   let m = data.read(cpu, bus) as u16;
-  let result = x - m;
+  let result = x.wrapping_sub(m);
   cpu.set_status(Carry, x >= m);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -652,7 +652,7 @@ fn cpx(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 fn cpy(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let y = cpu.y as u16;
   let m = data.read(cpu, bus) as u16;
-  let result = y - m;
+  let result = y.wrapping_sub(m);
   cpu.set_status(Carry, y >= m);
   cpu.set_status(Zero, y == m);
   cpu.set_status(Negative, (result & 0x0080) != 0);
@@ -668,7 +668,7 @@ fn cpy(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 /// Increment Memory
 fn inc(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let m = data.read(cpu, bus) as u16;
-  let result = m + 1;
+  let result = m.wrapping_add(1);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
   data.write(cpu, bus, (result & 0x00FF) as u8);
@@ -679,7 +679,7 @@ fn inc(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 
 /// Increment X
 fn inx(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
-  let result = (cpu.x as u16) + 1;
+  let result = (cpu.x as u16).wrapping_add(1);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
   cpu.x = (result & 0x00FF) as u8;
@@ -690,7 +690,7 @@ fn inx(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instructio
 
 /// Increment Y
 fn iny(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
-  let result = (cpu.y as u16) + 1;
+  let result = (cpu.y as u16).wrapping_add(1);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
   cpu.y = (result & 0x00FF) as u8;
@@ -702,7 +702,7 @@ fn iny(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instructio
 /// Decrement Memory
 fn dec(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let m = data.read(cpu, bus) as u16;
-  let result = m - 1;
+  let result = m.wrapping_sub(1);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
   data.write(cpu, bus, (result & 0x00FF) as u8);
@@ -713,7 +713,7 @@ fn dec(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 
 /// Decrement X
 fn dex(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
-  let result = (cpu.x as u16) - 1;
+  let result = (cpu.x as u16).wrapping_sub(1);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
   cpu.x = (result & 0x00FF) as u8;
@@ -724,7 +724,7 @@ fn dex(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instructio
 
 /// Decrement Y
 fn dey(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
-  let result = (cpu.y as u16) - 1;
+  let result = (cpu.y as u16).wrapping_sub(1);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
   cpu.y = (result & 0x00FF) as u8;
@@ -1005,7 +1005,7 @@ fn nop(_cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instructi
 ///
 /// Nothing to do here, but some implied operations operate on the accumulator,
 /// so we fetch that data here
-fn imp(_cpu: &mut Cpu, _bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn imp(_cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   AddressingModeResult {
     data: DataSource {
       kind: Implicit,
@@ -1018,9 +1018,9 @@ fn imp(_cpu: &mut Cpu, _bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 /// Immediate addressing
 ///
 /// Read a byte directly from the current program counter
-fn imm(cpu: &mut Cpu, _bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn imm(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   let addr_abs = cpu.pc;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
 
   AddressingModeResult {
     data: DataSource {
@@ -1035,11 +1035,11 @@ fn imm(cpu: &mut Cpu, _bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 ///
 /// Read a byte at an address in the zeroth page; i.e. from one of the first 256
 /// bytes in memory
-fn zp0(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn zp0(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   // Read the first operand, constructing a 16-bit address within the zeroth
   // page:
   let addr_abs = (bus.read(cpu.pc) as u16) & 0x00FF;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   AddressingModeResult {
     data: DataSource {
       kind: AbsoluteAddress,
@@ -1053,11 +1053,11 @@ fn zp0(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 ///
 /// Read a byte at an address in the zeroth page + X; i.e. starting from X, plus
 /// 0-255
-fn zpx(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn zpx(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   // Read the first operand, constructing a 16-bit address within the zeroth
   // page:
   let addr_abs = ((cpu.x + bus.read(cpu.pc)) as u16) & 0x00FF;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   AddressingModeResult {
     data: DataSource {
       kind: AbsoluteAddress,
@@ -1071,11 +1071,11 @@ fn zpx(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 ///
 /// Read a byte at an address in the zeroth page + Y; i.e. starting from Y, plus
 /// 0-255
-fn zpy(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn zpy(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   // Read the first operand, constructing a 16-bit address within the zeroth
   // page:
   let addr_abs = ((cpu.y + bus.read(cpu.pc)) as u16) & 0x00FF;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   AddressingModeResult {
     data: DataSource {
       kind: AbsoluteAddress,
@@ -1088,11 +1088,11 @@ fn zpy(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 /// Absolute addressing
 ///
 /// Read a full 16-bit address from the current program counter + 1
-fn abs(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn abs(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   let addr_lo = bus.read(cpu.pc) as u16;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   let addr_hi = bus.read(cpu.pc) as u16;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   AddressingModeResult {
     data: DataSource {
       kind: AbsoluteAddress,
@@ -1106,11 +1106,11 @@ fn abs(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 ///
 /// Read a full 16-bit address from the current program counter + 1, then apply
 /// an offset of X
-fn abx(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn abx(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   let addr_lo = bus.read(cpu.pc) as u16;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   let addr_hi = bus.read(cpu.pc) as u16;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   let addr_abs = ((addr_hi << 8) | addr_lo) + cpu.x as u16;
 
   // If our hi byte is changed after we've added X, then it has changed due to
@@ -1131,11 +1131,11 @@ fn abx(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 ///
 /// Read a full 16-bit address from the current program counter + 1, then apply
 /// an offset of Y
-fn aby(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn aby(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   let addr_lo = bus.read(cpu.pc) as u16;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   let addr_hi = bus.read(cpu.pc) as u16;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   let addr_abs = ((addr_hi << 8) | addr_lo) + cpu.y as u16;
 
   // If our hi byte is changed after we've added Y, then it has changed due to
@@ -1153,11 +1153,11 @@ fn aby(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 }
 
 /// Indirect
-fn ind(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn ind(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   let ptr_lo = bus.read(cpu.pc) as u16;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   let ptr_hi = bus.read(cpu.pc) as u16;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
   let ptr = ptr_hi << 8 | ptr_lo;
 
   // The 6502 has a hardware bug where if you happen to have a pointer address
@@ -1180,10 +1180,10 @@ fn ind(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 }
 
 /// (Indirect, X)
-fn izx(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn izx(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   // Our pointer lives in the zeroth page, so we only need to read one byte
   let ptr = bus.read(cpu.pc) as u16 & 0x00FF;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
 
   // We read X offset from this pointer
   let addr_abs = bus.read16(ptr + (cpu.x as u16) & 0x00FF);
@@ -1197,10 +1197,10 @@ fn izx(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 }
 
 /// (Indirect), Y
-fn izy(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn izy(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   // Our pointer lives in the zeroth page, so we only need to read one byte
   let ptr = bus.read(cpu.pc) as u16 & 0x00FF;
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
 
   let addr_abs = bus.read16(ptr) + cpu.y as u16;
 
@@ -1221,7 +1221,7 @@ fn izy(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 }
 
 /// Accumulator
-fn acc(_cpu: &mut Cpu, _bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn acc(_cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   AddressingModeResult {
     data: DataSource {
       kind: Accumulator,
@@ -1232,9 +1232,9 @@ fn acc(_cpu: &mut Cpu, _bus: &dyn Bus<Cpu>) -> AddressingModeResult {
 }
 
 /// Relative
-fn rel(cpu: &mut Cpu, bus: &dyn Bus<Cpu>) -> AddressingModeResult {
+fn rel(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   let offset = bus.read(cpu.pc);
-  cpu.pc += 1;
+  cpu.pc = cpu.pc.wrapping_add(1);
 
   // This ensures the binary arithmatic works out when adding this relative
   // address to our program counter.
@@ -2112,7 +2112,7 @@ mod tests {
         }
       }
     }
-    fn read(&self, addr: u16) -> u8 {
+    fn read(&mut self, addr: u16) -> u8 {
       for device in self {
         match device.read(addr) {
           None => (),
@@ -2141,7 +2141,7 @@ mod tests {
     fn write(&mut self, _: u16, _: u8) -> std::option::Option<()> {
       None
     }
-    fn read(&self, _: u16) -> std::option::Option<u8> {
+    fn read(&mut self, _: u16) -> std::option::Option<u8> {
       None
     }
   }

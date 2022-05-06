@@ -120,7 +120,7 @@ impl Cart {
 }
 
 impl BusDevice for CartCpuMapper {
-  fn read(&self, addr: u16) -> Option<u8> {
+  fn read(&mut self, addr: u16) -> Option<u8> {
     let mapped_addr = (self.mapper.cpu_read)(addr, self.num_prg_banks)?;
     Some(self.prg[mapped_addr as usize])
   }
@@ -132,7 +132,7 @@ impl BusDevice for CartCpuMapper {
 }
 
 impl BusDevice for CartPpuMapper {
-  fn read(&self, addr: u16) -> Option<u8> {
+  fn read(&mut self, addr: u16) -> Option<u8> {
     let mapped_addr = (self.mapper.ppu_read)(addr, self.num_chr_banks)?;
     Some(self.chr[mapped_addr as usize])
   }

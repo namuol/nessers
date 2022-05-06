@@ -146,7 +146,7 @@ impl Nes {
   /// 0x0<lsb> + 0x0<msb>) to get our 2-bit color palette index.
   ///
   /// Whew!
-  pub fn render_pattern_table(&self, table_number: u16, palette: u8) -> [[u8; 4]; 128 * 128] {
+  pub fn render_pattern_table(&mut self, table_number: u16, palette: u8) -> [[u8; 4]; 128 * 128] {
     let mut result = [[0x00, 0x00, 0x00, 0xFF]; 128 * 128];
     // We want to render 16x16 tiles
     for tile_y in 0..16 {
@@ -197,7 +197,7 @@ impl Nes {
     result
   }
 
-  pub fn get_color_from_palette_ram(&self, palette: u8, pixel: u8) -> Color {
+  pub fn get_color_from_palette_ram(&mut self, palette: u8, pixel: u8) -> Color {
     let idx = self.ppu_read(0x3F00 as u16 + ((palette << 2) + pixel) as u16);
     self.ppu.palette.colors[idx as usize]
   }
@@ -210,20 +210,20 @@ impl Nes {
 
   // BEGIN ------ Hacky? Helper functions to avoid ugly manual dyn cast -------
 
-  pub fn cpu_read(&self, addr: u16) -> u8 {
-    (self as &dyn Bus<Cpu>).read(addr)
+  pub fn cpu_read(&mut self, addr: u16) -> u8 {
+    (self as &mut dyn Bus<Cpu>).read(addr)
   }
 
-  pub fn cpu_read16(&self, addr: u16) -> u16 {
-    (self as &dyn Bus<Cpu>).read16(addr)
+  pub fn cpu_read16(&mut self, addr: u16) -> u16 {
+    (self as &mut dyn Bus<Cpu>).read16(addr)
   }
 
-  pub fn ppu_read(&self, addr: u16) -> u8 {
-    (self as &dyn Bus<Ppu>).read(addr)
+  pub fn ppu_read(&mut self, addr: u16) -> u8 {
+    (self as &mut dyn Bus<Ppu>).read(addr)
   }
 
-  pub fn ppu_read16(&self, addr: u16) -> u16 {
-    (self as &dyn Bus<Ppu>).read16(addr)
+  pub fn ppu_read16(&mut self, addr: u16) -> u16 {
+    (self as &mut dyn Bus<Ppu>).read16(addr)
   }
 
   // END -------- Hacky? Helper functions to avoid ugly manual dyn cast -------
@@ -231,7 +231,7 @@ impl Nes {
 
 /// The CPU's Bus
 impl Bus<Cpu> for Nes {
-  fn read(&self, addr: u16) -> u8 {
+  fn read(&mut self, addr: u16) -> u8 {
     // ```
     // let cpu_devices: DeviceList = vec![
     //   // Cartridge
@@ -253,8 +253,8 @@ impl Bus<Cpu> for Nes {
 
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.cpu_mapper.read(addr))
-      .or(self.ram_mirror.read(&self.ram, addr))
-      .or(self.ppu_registers_mirror.read(&self.ppu, addr))
+      .or(self.ram_mirror.read(&mut self.ram, addr))
+      .or(self.ppu_registers_mirror.read(&mut self.ppu, addr))
     {
       Some(data) => data,
       None => 0x00,
@@ -289,14 +289,12 @@ impl Bus<Cpu> for Nes {
 
 /// The PPU's Bus
 impl Bus<Ppu> for Nes {
-  fn read(&self, addr_: u16) -> u8 {
+  fn read(&mut self, addr_: u16) -> u8 {
     let addr = addr_ & 0x3FFF;
 
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.ppu_mapper.read(addr))
-      // 0x0000 -> 0x1FFF = pattern memory
-      // 0x2000 -> 0x3EFF = nametable memory
-      // 0x3F00 -> 0x3FFF = palette memory
+      .or(Some(self.ppu.ppu_read(addr)))
     {
       Some(data) => data,
       None => 0x00,
@@ -307,9 +305,7 @@ impl Bus<Ppu> for Nes {
     let addr = addr_ & 0x3FFF;
 
     None // Hehe, using None here just for formatting purposes:
-      .or_else(|| self.cart.ppu_mapper.write(addr, data));
-    // 0x0000 -> 0x1FFF = pattern memory
-    // 0x2000 -> 0x3EFF = nametable memory
-    // 0x3F00 -> 0x3FFF = palette memory
+      .or_else(|| self.cart.ppu_mapper.write(addr, data))
+      .or_else(|| Some(self.ppu.ppu_write(addr, data)));
   }
 }
