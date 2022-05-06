@@ -205,7 +205,6 @@ impl BusDevice for Ppu {
       // 0x0006 => {} // PPU Address
       0x0007 => {
         let data = self.data_buffer;
-        // NEED TO MAKE READS MUTABLE UGH:
         self.data_buffer = self.ppu_read(self.address);
         Some(data)
       }
