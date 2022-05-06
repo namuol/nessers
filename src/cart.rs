@@ -1,6 +1,7 @@
 use std::fs;
 
-use crate::bus_device::{BusDevice, BusDeviceRange};
+use crate::bus_device::BusDevice;
+use crate::mapper::MAPPERS;
 
 const HEADER_START: [u8; 4] = [
   0x4E, // N
@@ -24,11 +25,13 @@ pub enum Mirroring {
 }
 
 pub struct CartCpuMapper {
+  num_prg_banks: usize,
   prg: Vec<u8>,
   mapper_code: u8,
 }
 
 pub struct CartPpuMapper {
+  num_chr_banks: usize,
   chr: Vec<u8>,
   mapper_code: u8,
 }
@@ -50,11 +53,19 @@ impl Cart {
       return Err("Too small to contain header");
     }
 
+    // let format_version = (data[7] & 0b00001100) >> 2;
+
+    // if format_version != 1 {
+    //   return Err("iNES 1.0 format is the only supported format");
+    // }
+
     // Byte 4: Size of PRG ROM in 16KB increments
-    let prg_size = (data[4] as usize) * 16 * 1024;
+    let num_prg_banks = data[4] as usize;
+    let prg_size = num_prg_banks * 16 * 1024;
 
     // Byte 5: Size of CHR ROM in 8KB increments
-    let chr_size = (data[5] as usize) * 8 * 1024;
+    let num_chr_banks = data[5] as usize;
+    let chr_size = num_chr_banks * 8 * 1024;
 
     let flags_6 = data[6];
     let mirroring = if flags_6 & FLAG_MIRRORING != 0 {
@@ -67,12 +78,6 @@ impl Cart {
     let has_trainer = flags_6 & FLAG_HAS_TRAINER != 0;
     let mapper_code_lo = flags_6 & 0xF0;
     let mapper_code_hi = data[7] & 0xF0;
-
-    let format_version = (data[7] & 0b00001100) >> 2;
-
-    if format_version == 2 {
-      return Err("iNES 2.0 format is not supported yet");
-    }
 
     let prg_start = if has_trainer {
       HEADER_SIZE + 512
@@ -93,10 +98,12 @@ impl Cart {
       has_trainer,
       ppu_mapper: CartPpuMapper {
         mapper_code,
+        num_chr_banks,
         chr: data[chr_start..chr_start + chr_size].to_vec(),
       },
       cpu_mapper: CartCpuMapper {
         mapper_code,
+        num_prg_banks,
         prg: data[prg_start..prg_start + prg_size].to_vec(),
       },
     })
@@ -108,49 +115,27 @@ impl Cart {
   }
 }
 
-impl BusDeviceRange for CartCpuMapper {
-  fn size(&self) -> usize {
-    match self.mapper_code {
-      0 => self.prg.len() * 2,
-      code => panic!("Unexpected mapper code {}", code),
-    }
+impl BusDevice for CartCpuMapper {
+  fn write(&mut self, addr: u16, data: u8) -> Option<()> {
+    let mapped_addr = (MAPPERS[self.mapper_code as usize].cpu)(addr)?;
+    self.prg[mapped_addr as usize] = data;
+    Some(())
   }
-  fn start(&self) -> u16 {
-    match self.mapper_code {
-      0 => 0x8000,
-      code => panic!("Unexpected mapper code {}", code),
-    }
+  fn read(&self, addr: u16) -> Option<u8> {
+    let mapped_addr = (MAPPERS[self.mapper_code as usize].cpu)(addr)?;
+    Some(self.prg[mapped_addr as usize])
   }
 }
 
-impl BusDevice for CartCpuMapper {
+impl BusDevice for CartPpuMapper {
   fn write(&mut self, addr: u16, data: u8) -> Option<()> {
-    let start = self.start() as usize;
-    let len = self.prg.len();
-    match self.mapper_code {
-      0 => {
-        if !self.in_range(addr) {
-          return None;
-        }
-        self.prg[((addr as usize) - start) % len] = data;
-        Some(())
-      }
-      code => panic!("Unexpected mapper code {}", code),
-    }
+    let mapped_addr = (MAPPERS[self.mapper_code as usize].ppu)(addr)?;
+    self.chr[mapped_addr as usize] = data;
+    Some(())
   }
   fn read(&self, addr: u16) -> Option<u8> {
-    let start = self.start() as usize;
-    let len = self.prg.len();
-    match self.mapper_code {
-      0 => {
-        if !self.in_range(addr) {
-          return None;
-        }
-        let internal_addr = ((addr as usize) - start) % len;
-        Some(self.prg[internal_addr])
-      }
-      code => panic!("Unexpected mapper code {}", code),
-    }
+    let mapped_addr = (MAPPERS[self.mapper_code as usize].ppu)(addr)?;
+    Some(self.chr[mapped_addr as usize])
   }
 }
 
@@ -175,7 +160,7 @@ mod tests {
       0x01,                                   // 1 * 16K PRG
       0x01,                                   // 1 * 8K CHR
       (0x10 | FLAG_MIRRORING | FLAG_HAS_RAM), // Lower nybble of mapper code + Flags
-      (0x10 | 0x00),                          // Upper nybble of mapper code + iNES version
+      (0x10 | 0x01),                          // Upper nybble of mapper code + iNES version
       // Pad up to 16 bytes, which is the minimum for this function not to
       // return an `Err`.
       //

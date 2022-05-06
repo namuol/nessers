@@ -13,7 +13,7 @@ pub struct Nes {
   tick: u64,
   ram: Ram,
   ram_mirror: Mirror,
-  ppu_mirror: Mirror,
+  ppu_registers_mirror: Mirror,
   cart: Cart,
 }
 
@@ -21,13 +21,13 @@ impl Nes {
   pub fn new(cart_filename: &str, palette_filename: &str) -> Result<Nes, &'static str> {
     let cpu = Cpu::new();
 
-    // PPU Registers, mirrored for 8K
-    let ppu = Ppu::new(Palette::from_file(palette_filename)?);
-    let ppu_mirror = Mirror::new(0x2000, 8 * 1024);
-
     // 2K internal RAM, mirrored to 8K
     let ram = Ram::new(0x0000, 2 * 1024);
     let ram_mirror = Mirror::new(0x0000, 8 * 1024);
+
+    // PPU Registers, mirrored for 8K
+    let ppu = Ppu::new(Palette::from_file(palette_filename)?);
+    let ppu_registers_mirror = Mirror::new(0x2000, 8 * 1024);
 
     let cart = Cart::from_file(cart_filename)?;
 
@@ -38,7 +38,7 @@ impl Nes {
       cart,
       ram_mirror,
       ram,
-      ppu_mirror,
+      ppu_registers_mirror,
     })
   }
 
@@ -254,7 +254,7 @@ impl Bus<Cpu> for Nes {
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.cpu_mapper.read(addr))
       .or(self.ram_mirror.read(&self.ram, addr))
-      .or(self.ppu_mirror.read(&self.ppu, addr))
+      .or(self.ppu_registers_mirror.read(&self.ppu, addr))
     {
       Some(data) => data,
       None => 0x00,
@@ -283,17 +283,33 @@ impl Bus<Cpu> for Nes {
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.cpu_mapper.write(addr, data))
       .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data))
-      .or_else(|| self.ppu_mirror.write(&mut self.ppu, addr, data));
+      .or_else(|| self.ppu_registers_mirror.write(&mut self.ppu, addr, data));
   }
 }
 
 /// The PPU's Bus
 impl Bus<Ppu> for Nes {
-  fn read(&self, _addr: u16) -> u8 {
-    0x00
+  fn read(&self, addr_: u16) -> u8 {
+    let addr = addr_ & 0x3FFF;
+
+    match None // Hehe, using None here just for formatting purposes:
+      .or(self.cart.ppu_mapper.read(addr))
+      // 0x0000 -> 0x1FFF = pattern memory
+      // 0x2000 -> 0x3EFF = nametable memory
+      // 0x3F00 -> 0x3FFF = palette memory
+    {
+      Some(data) => data,
+      None => 0x00,
+    }
   }
 
-  fn write(&mut self, _addr: u16, _data: u8) {
-    todo!()
+  fn write(&mut self, addr_: u16, data: u8) {
+    let addr = addr_ & 0x3FFF;
+
+    None // Hehe, using None here just for formatting purposes:
+      .or_else(|| self.cart.ppu_mapper.write(addr, data));
+    // 0x0000 -> 0x1FFF = pattern memory
+    // 0x2000 -> 0x3EFF = nametable memory
+    // 0x3F00 -> 0x3FFF = palette memory
   }
 }

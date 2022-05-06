@@ -18,6 +18,7 @@ pub mod nes;
 pub mod palette;
 pub mod ppu;
 pub mod ram;
+pub mod mapper;
 
 use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;

@@ -12,6 +12,8 @@ pub struct Ppu {
   /// The current pixel number on the current scanline
   cycle: isize,
   pub palette: Palette,
+  pub name_tables: [[u8; 1024]; 2],
+  pub pattern_tables: [[u8; 4096]; 2],
   pub frame_complete: bool,
   pub screen: [[u8; 4]; SCREEN_W * SCREEN_H],
 }
@@ -23,6 +25,8 @@ impl Ppu {
       cycle: 0,
       frame_complete: false,
       palette,
+      name_tables: [[0x00; 1024]; 2],
+      pattern_tables: [[0x00; 4096]; 2],
       screen: [[0x00, 0x00, 0x00, 0xFF]; SCREEN_W * SCREEN_H],
     }
   }
