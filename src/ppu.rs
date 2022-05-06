@@ -18,7 +18,13 @@ pub struct Ppu {
   pub screen: [[u8; 4]; SCREEN_W * SCREEN_H],
 
   address_latch: u8,
+
+  /// Reading from the PPU usually takes two cycles to fully read our data, so
+  /// we need to store the data that was read so that we can return it the next
+  /// time we read data:
   data_buffer: u8,
+
+  /// The address
   address: u16,
 
   status: u8,
@@ -26,79 +32,107 @@ pub struct Ppu {
   control: u8,
 }
 
-trait Register {
-  fn from_u8(u: u8) -> Self;
+pub trait StatusRegister {
+  fn sprite_overflow(self) -> bool;
+  fn sprite_zero_hit(self) -> bool;
+  fn vblank(self) -> bool;
+
+  fn set_sprite_overflow(self, v: bool) -> Self;
+  fn set_sprite_zero_hit(self, v: bool) -> Self;
+  fn set_vblank(self, v: bool) -> Self;
 }
 
-#[derive(Debug)]
-pub struct StatusRegister {
-  pub sprite_overflow: bool,
-  pub sprite_zero_hit: bool,
-  pub vblank: bool,
+#[rustfmt::skip]
+impl StatusRegister for u8 {
+  fn vblank(self)          -> bool { (1 << 7) & self != 0 }
+  fn sprite_zero_hit(self) -> bool { (1 << 6) & self != 0 }
+  fn sprite_overflow(self) -> bool { (1 << 5) & self != 0 }
+
+  fn set_vblank(self, v: bool)          -> u8 { self | (v as u8 * (1 << 7)) }
+  fn set_sprite_zero_hit(self, v: bool) -> u8 { self | (v as u8 * (1 << 6)) }
+  fn set_sprite_overflow(self, v: bool) -> u8 { self | (v as u8 * (1 << 5)) }
 }
 
-impl Register for StatusRegister {
-  fn from_u8(u: u8) -> StatusRegister {
-    StatusRegister {
-      sprite_overflow: (1 << 2) & u != 0,
-      sprite_zero_hit: (1 << 1) & u != 0,
-      vblank: (1 << 0) & u != 0,
-    }
-  }
+pub trait MaskRegister {
+  fn grayscale(self) -> bool;
+  fn render_background_left(self) -> bool;
+  fn render_sprites_left(self) -> bool;
+  fn render_background(self) -> bool;
+  fn render_sprites(self) -> bool;
+  fn enhance_red(self) -> bool;
+  fn enhance_green(self) -> bool;
+  fn enhance_blue(self) -> bool;
+
+  fn set_grayscale(self, v: bool) -> Self;
+  fn set_render_background_left(self, v: bool) -> Self;
+  fn set_render_sprites_left(self, v: bool) -> Self;
+  fn set_render_background(self, v: bool) -> Self;
+  fn set_render_sprites(self, v: bool) -> Self;
+  fn set_enhance_red(self, v: bool) -> Self;
+  fn set_enhance_green(self, v: bool) -> Self;
+  fn set_enhance_blue(self, v: bool) -> Self;
 }
 
-#[derive(Debug)]
-pub struct MaskRegister {
-  pub grayscale: bool,
-  pub render_background_left: bool,
-  pub render_sprites_left: bool,
-  pub render_background: bool,
-  pub render_sprites: bool,
-  pub enhance_red: bool,
-  pub enhance_green: bool,
-  pub enhance_blue: bool,
+#[rustfmt::skip]
+impl MaskRegister for u8 {
+  fn grayscale(self)              -> bool { (1 << 7) & self != 0 }
+  fn render_background_left(self) -> bool { (1 << 6) & self != 0 }
+  fn render_sprites_left(self)    -> bool { (1 << 5) & self != 0 }
+  fn render_background(self)      -> bool { (1 << 4) & self != 0 }
+  fn render_sprites(self)         -> bool { (1 << 3) & self != 0 }
+  fn enhance_red(self)            -> bool { (1 << 2) & self != 0 }
+  fn enhance_green(self)          -> bool { (1 << 1) & self != 0 }
+  fn enhance_blue(self)           -> bool { (1 << 0) & self != 0 }
+
+  fn set_grayscale(self, v: bool)              -> u8 { self | v as u8 * (1 << 7) }
+  fn set_render_background_left(self, v: bool) -> u8 { self | v as u8 * (1 << 6) }
+  fn set_render_sprites_left(self, v: bool)    -> u8 { self | v as u8 * (1 << 5) }
+  fn set_render_background(self, v: bool)      -> u8 { self | v as u8 * (1 << 4) }
+  fn set_render_sprites(self, v: bool)         -> u8 { self | v as u8 * (1 << 3) }
+  fn set_enhance_red(self, v: bool)            -> u8 { self | v as u8 * (1 << 2) }
+  fn set_enhance_green(self, v: bool)          -> u8 { self | v as u8 * (1 << 1) }
+  fn set_enhance_blue(self, v: bool)           -> u8 { self | v as u8 * (1 << 0) }
 }
 
-impl Register for MaskRegister {
-  fn from_u8(u: u8) -> MaskRegister {
-    MaskRegister {
-      grayscale: (1 << 7) & u != 0,
-      render_background_left: (1 << 6) & u != 0,
-      render_sprites_left: (1 << 5) & u != 0,
-      render_background: (1 << 4) & u != 0,
-      render_sprites: (1 << 3) & u != 0,
-      enhance_red: (1 << 2) & u != 0,
-      enhance_green: (1 << 1) & u != 0,
-      enhance_blue: (1 << 0) & u != 0,
-    }
-  }
+pub trait ControlRegister {
+  fn nametable_x(self) -> bool;
+  fn nametable_y(self) -> bool;
+  fn increment_mode(self) -> bool;
+  fn pattern_sprite(self) -> bool;
+  fn pattern_background(self) -> bool;
+  fn sprite_size(self) -> bool;
+  fn slave_mode(self) -> bool;
+  fn enable_nmi(self) -> bool;
+
+  fn set_nametable_x(self, v: bool) -> Self;
+  fn set_nametable_y(self, v: bool) -> Self;
+  fn set_increment_mode(self, v: bool) -> Self;
+  fn set_pattern_sprite(self, v: bool) -> Self;
+  fn set_pattern_background(self, v: bool) -> Self;
+  fn set_sprite_size(self, v: bool) -> Self;
+  fn set_slave_mode(self, v: bool) -> Self;
+  fn set_enable_nmi(self, v: bool) -> Self;
 }
 
-#[derive(Debug)]
-pub struct ControlRegister {
-  pub nametable_x: bool,
-  pub nametable_y: bool,
-  pub increment_mode: bool,
-  pub pattern_sprite: bool,
-  pub pattern_background: bool,
-  pub sprite_size: bool,
-  pub slave_mode: bool,
-  pub enable_nmi: bool,
-}
+#[rustfmt::skip]
+impl ControlRegister for u8 {
+  fn nametable_x(self)        -> bool { (1 << 7) & self != 0 }
+  fn nametable_y(self)        -> bool { (1 << 6) & self != 0 }
+  fn increment_mode(self)     -> bool { (1 << 5) & self != 0 }
+  fn pattern_sprite(self)     -> bool { (1 << 4) & self != 0 }
+  fn pattern_background(self) -> bool { (1 << 3) & self != 0 }
+  fn sprite_size(self)        -> bool { (1 << 2) & self != 0 }
+  fn slave_mode(self)         -> bool { (1 << 1) & self != 0 }
+  fn enable_nmi(self)         -> bool { (1 << 0) & self != 0 }
 
-impl Register for ControlRegister {
-  fn from_u8(u: u8) -> ControlRegister {
-    ControlRegister {
-      nametable_x: (1 << 7) & u != 0,
-      nametable_y: (1 << 6) & u != 0,
-      increment_mode: (1 << 5) & u != 0,
-      pattern_sprite: (1 << 4) & u != 0,
-      pattern_background: (1 << 3) & u != 0,
-      sprite_size: (1 << 2) & u != 0,
-      slave_mode: (1 << 1) & u != 0,
-      enable_nmi: (1 << 0) & u != 0,
-    }
-  }
+  fn set_nametable_x(self, v: bool)         -> u8 { self | v as u8 * (1 << 7) }
+  fn set_nametable_y(self, v: bool)         -> u8 { self | v as u8 * (1 << 6) }
+  fn set_increment_mode(self, v: bool)      -> u8 { self | v as u8 * (1 << 5) }
+  fn set_pattern_sprite(self, v: bool)      -> u8 { self | v as u8 * (1 << 4) }
+  fn set_pattern_background(self, v: bool)  -> u8 { self | v as u8 * (1 << 3) }
+  fn set_sprite_size(self, v: bool)         -> u8 { self | v as u8 * (1 << 2) }
+  fn set_slave_mode(self, v: bool)          -> u8 { self | v as u8 * (1 << 1) }
+  fn set_enable_nmi(self, v: bool)          -> u8 { self | v as u8 * (1 << 0) }
 }
 
 impl Ppu {
@@ -163,16 +197,49 @@ impl Ppu {
   }
 
   pub fn ppu_read(&self, addr: u16) -> u8 {
-    // 0x0000 -> 0x1FFF = pattern memory
-    // 0x2000 -> 0x3EFF = nametable memory
-    // 0x3F00 -> 0x3FFF = palette memory
+    if addr >= 0x0000 && addr <= 0x1FFF {
+      // 0x0000 -> 0x1FFF = pattern memory
+      return self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize];
+    } else if addr >= 0x2000 && addr <= 0x3EFF {
+      // 0x2000 -> 0x3EFF = nametable memory
+    } else if addr >= 0x3F00 && addr <= 0x3FFF {
+      // 0x3F00 -> 0x3FFF = palette memory
+
+      let addr = match addr & 0x001F {
+        0x0010 => 0x0000,
+        0x0014 => 0x0004,
+        0x0018 => 0x0008,
+        0x001C => 0x000C,
+        _ => addr & 0x001F,
+      };
+
+      return self.palette.map[addr as usize];
+    }
+
     0x00
   }
 
   pub fn ppu_write(&mut self, addr: u16, data: u8) {
-    // 0x0000 -> 0x1FFF = pattern memory
-    // 0x2000 -> 0x3EFF = nametable memory
-    // 0x3F00 -> 0x3FFF = palette memory
+    if addr >= 0x0000 && addr <= 0x1FFF {
+      // 0x0000 -> 0x1FFF = pattern memory
+    } else if addr >= 0x2000 && addr <= 0x3EFF {
+      // 0x2000 -> 0x3EFF = nametable memory
+      self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize] = data;
+      return;
+    } else if addr >= 0x3F00 && addr <= 0x3FFF {
+      // 0x3F00 -> 0x3FFF = palette memory
+
+      let addr = match addr & 0x001F {
+        0x0010 => 0x0000,
+        0x0014 => 0x0004,
+        0x0018 => 0x0008,
+        0x001C => 0x000C,
+        _ => addr & 0x001F,
+      };
+
+      self.palette.map[addr as usize] = data;
+      return;
+    }
   }
 }
 
@@ -198,14 +265,42 @@ impl BusDevice for Ppu {
     match addr % 8 {
       0x0000 => Some(self.control),
       0x0001 => Some(self.mask),
-      0x0002 => Some(self.status),
+      0x0002 => {
+        let fake_status = self.status.set_vblank(true);
+        println!("Fake status, masked {:08b}", fake_status & 0b111_00000);
+
+        // Reading from the status register, we only care about the top 3 bits,
+        // however according to NES lore, the lower 5 bits apparently contain
+        // the contents from whatever data was last read from the PPU (which we
+        // store as `self.data_buffer`):
+        let data = (
+          // HACK for now: Force VBlank to be true:
+          self.status.set_vblank(true) & 0b111_00000
+        ) | (self.data_buffer & 0b000_11111);
+
+        // Reading from the status register clears the vblank flag 🤷‍♂️
+        self.status = self.status.set_vblank(false);
+
+        Some(data)
+      }
       // 0x0003 => {} // OAM Address
       // 0x0004 => {} // OAM Data
       // 0x0005 => {} // Scroll
       // 0x0006 => {} // PPU Address
       0x0007 => {
+        // We don't actually return the data at the address from this read
+        // operation; we instead return whatever was previously read - this is
+        // basically a simulation of a read operation that takes more than one
+        // cycle to complete.
         let data = self.data_buffer;
         self.data_buffer = self.ppu_read(self.address);
+
+        // Addresses above 0x3F00 are part of the palette memory which can be
+        // read right away rather than taking an extra cycle:
+        if self.address > 0x3F00 {
+          return Some(self.data_buffer);
+        }
+
         Some(data)
       }
       _ => Some(0x00),
@@ -225,18 +320,18 @@ impl BusDevice for Ppu {
       0x0001 => {
         self.mask = data;
       } // Mask
-      0x0002 => {} // Status
-      0x0003 => {} // OAM Address
-      0x0004 => {} // OAM Data
-      0x0005 => {} // Scroll
+      // 0x0002 => {} // Status
+      // 0x0003 => {} // OAM Address
+      // 0x0004 => {} // OAM Data
+      // 0x0005 => {} // Scroll
       0x0006 => {
         if self.address_latch == 0 {
-          // Write the low byte of address:
-          self.address = (self.address & 0xFF00) | data as u16;
-          self.address_latch = 1;
-        } else {
           // Write the high byte of address:
           self.address = (self.address & 0x00FF) | ((data as u16) << 8);
+          self.address_latch = 1;
+        } else {
+          // Write the low byte of address:
+          self.address = (self.address & 0xFF00) | data as u16;
           self.address_latch = 0;
         }
       }

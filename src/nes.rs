@@ -202,6 +202,22 @@ impl Nes {
     self.ppu.palette.colors[idx as usize]
   }
 
+  pub fn get_palettes(&mut self) -> [[[u8; 4]; 4]; 8] {
+    let mut result = [[[0x00, 0x00, 0x00, 0xFF]; 4]; 8];
+
+    for palette_num in 0..8 {
+      for color_num in 0..4 {
+        let color = self.get_color_from_palette_ram(palette_num, color_num);
+        result[palette_num as usize][color_num as usize][0] = color.r;
+        result[palette_num as usize][color_num as usize][1] = color.g;
+        result[palette_num as usize][color_num as usize][2] = color.b;
+        result[palette_num as usize][color_num as usize][3] = 0xFF;
+      }
+    }
+
+    result
+  }
+
   pub fn reset(&mut self) {
     let cpu = &mut self.cpu.clone();
     cpu.sig_reset(self);
@@ -232,25 +248,6 @@ impl Nes {
 /// The CPU's Bus
 impl Bus<Cpu> for Nes {
   fn read(&mut self, addr: u16) -> u8 {
-    // ```
-    // let cpu_devices: DeviceList = vec![
-    //   // Cartridge
-    //   Box::new(cart),
-    //   // 2K internal RAM, mirrored to 8K
-    //   Box::new(Mirror::new(
-    //     0x0000,
-    //     Box::new(Ram::new(0x0000, 2 * 1024)),
-    //     8 * 1024,
-    //   )),
-    //   // PPU Registers, mirrored for 8K
-    //   Box::new(Mirror::new(0x2000, Box::new(ppu), 8 * 1024)),
-    //   // APU & I/O Registers
-    //   Box::new(Ram::new(0x4000, 0x18)),
-    //   // APU & I/O functionality that is normally disabled
-    //   Box::new(Ram::new(0x4018, 0x08)),
-    // ];
-    // ```
-
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.cpu_mapper.read(addr))
       .or(self.ram_mirror.read(&mut self.ram, addr))
@@ -262,24 +259,6 @@ impl Bus<Cpu> for Nes {
   }
 
   fn write(&mut self, addr: u16, data: u8) {
-    // ```
-    // let cpu_devices: DeviceList = vec![
-    //   // Cartridge
-    //   Box::new(cart),
-    //   // 2K internal RAM, mirrored to 8K
-    //   Box::new(Mirror::new(
-    //     0x0000,
-    //     Box::new(Ram::new(0x0000, 2 * 1024)),
-    //     8 * 1024,
-    //   )),
-    //   // PPU Registers, mirrored for 8K
-    //   Box::new(Mirror::new(0x2000, Box::new(ppu), 8 * 1024)),
-    //   // APU & I/O Registers
-    //   Box::new(Ram::new(0x4000, 0x18)),
-    //   // APU & I/O functionality that is normally disabled
-    //   Box::new(Ram::new(0x4018, 0x08)),
-    // ];
-    // ```
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.cpu_mapper.write(addr, data))
       .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data))
@@ -291,7 +270,6 @@ impl Bus<Cpu> for Nes {
 impl Bus<Ppu> for Nes {
   fn read(&mut self, addr_: u16) -> u8 {
     let addr = addr_ & 0x3FFF;
-
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.ppu_mapper.read(addr))
       .or(Some(self.ppu.ppu_read(addr)))

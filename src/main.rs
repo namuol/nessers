@@ -39,6 +39,7 @@ struct NESDebugger {
   screen_img: Option<coffee::graphics::Image>,
   pattern_table_0_img: Option<coffee::graphics::Image>,
   pattern_table_1_img: Option<coffee::graphics::Image>,
+  palettes_imgs: Option<[coffee::graphics::Image; 8]>,
   nes: Nes,
 }
 
@@ -105,6 +106,7 @@ impl Game for NESDebugger {
         screen_img: None,
         pattern_table_0_img: None,
         pattern_table_1_img: None,
+        palettes_imgs: None,
         nes,
       };
       debugger_ui.nes.reset();
@@ -146,6 +148,19 @@ impl Game for NESDebugger {
       Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(0, 0)).unwrap());
     self.pattern_table_1_img =
       Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(1, 0)).unwrap());
+
+    // lol
+    let palettes = self.nes.get_palettes();
+    self.palettes_imgs = Some([
+      from_palette(window.gpu(), &palettes[0]).unwrap(),
+      from_palette(window.gpu(), &palettes[1]).unwrap(),
+      from_palette(window.gpu(), &palettes[2]).unwrap(),
+      from_palette(window.gpu(), &palettes[3]).unwrap(),
+      from_palette(window.gpu(), &palettes[4]).unwrap(),
+      from_palette(window.gpu(), &palettes[5]).unwrap(),
+      from_palette(window.gpu(), &palettes[6]).unwrap(),
+      from_palette(window.gpu(), &palettes[7]).unwrap(),
+    ]);
   }
 }
 
@@ -315,6 +330,16 @@ impl UserInterface for NESDebugger {
       None => tables,
     };
 
+    tables = match &self.palettes_imgs {
+      Some(imgs) => {
+        for i in 0..8 {
+          tables = tables.push(Image::new(&imgs[i]));
+        }
+        tables
+      }
+      None => tables,
+    };
+
     ui = ui.push(tables);
 
     ui.into()
@@ -385,6 +410,26 @@ fn from_pattern_table(
       image::RgbaImage::from_raw(
         128 as u32,
         128 as u32,
+        colors.iter().flatten().cloned().collect(),
+      )
+      .unwrap(),
+    ),
+  )
+}
+
+fn from_palette(gpu: &mut Gpu, palettes: &[[u8; 4]; 4]) -> Result<coffee::graphics::Image> {
+  let colors: Vec<[u8; 4]> = palettes
+    .iter()
+    // For now, we just plop the pixel
+    .map(|color| *color)
+    .collect();
+
+  coffee::graphics::Image::from_image(
+    gpu,
+    &image::DynamicImage::ImageRgba8(
+      image::RgbaImage::from_raw(
+        4 as u32,
+        1 as u32,
         colors.iter().flatten().cloned().collect(),
       )
       .unwrap(),
