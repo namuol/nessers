@@ -8,8 +8,11 @@ version = "0.1.0"
 
 [dependencies]
 coffee = {version = "0.4.1", features = ["vulkan"]}
+docopt = "1.1.1"
 lazy_static = "1.4.0"
 maplit = "1.0.2"
+serde = "1.0.137"
+
 # Copied directly from Cargo.lock - is there a way to reference
 # sub-dependencies, or auto-resolve a version based on what's in Cargo.lock?
 image = "0.21.3"
@@ -18,5 +21,5 @@ rand = "0.7.3"
 [patch.crates-io]
 coffee = {git = "https://github.com/namuol/coffee", rev = "cfc18d8cae128b6f22087872ab37ba152c9dc55e"}
 
-# [profile.dev]
-# opt-level = 2
+[profile.dev]
+opt-level = 2

@@ -6,6 +6,8 @@ use coffee::input::{self, keyboard, Input};
 use coffee::load::Task;
 use coffee::ui::{Align, Column, Element, Image, Justify, Renderer, Row, Text, UserInterface};
 use coffee::{Game, Result, Timer};
+use docopt::Docopt;
+use serde::Deserialize;
 use std::collections::HashSet;
 
 pub mod bus;
@@ -24,6 +26,17 @@ use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;
 use crate::nes::Nes;
 use crate::ppu::{SCREEN_H, SCREEN_W};
+
+const USAGE: &'static str = "
+Usage:
+
+nessers <rom>
+";
+
+#[derive(Deserialize)]
+struct Args {
+  arg_rom: String,
+}
 
 fn main() -> Result<()> {
   <NESDebugger as UserInterface>::run(WindowSettings {
@@ -92,12 +105,12 @@ impl Game for NESDebugger {
   type LoadingScreen = (); // No loading screen
 
   fn load(_window: &Window) -> Task<NESDebugger> {
-    // Load your game assets here. Check out the `load` module!
     Task::succeed(|| {
-      let nes = match Nes::new(
-        "src/test_fixtures/nestest.nes",
-        "src/test_fixtures/ntscpalette.pal",
-      ) {
+      let args: Args = Docopt::new(USAGE)
+        .and_then(|d| d.deserialize())
+        .unwrap_or_else(|e| e.exit());
+
+      let nes = match Nes::new(&args.arg_rom, "src/test_fixtures/ntscpalette.pal") {
         Ok(n) => n,
         Err(msg) => panic!("{}", msg),
       };
@@ -135,6 +148,10 @@ impl Game for NESDebugger {
         self.nes.reset();
       } else if key == "F" {
         self.nes.frame();
+      } else if key == "L" {
+        for _ in 0..114 {
+          self.nes.step();
+        }
       }
     }
 

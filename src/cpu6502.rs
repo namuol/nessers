@@ -90,8 +90,8 @@ impl Cpu {
   }
 
   fn pull(&mut self, bus: &mut dyn Bus<Cpu>) -> u8 {
-    let data = bus.read(STACK_START + (self.s as u16));
     self.s = self.s.wrapping_add(1);
+    let data = bus.read(STACK_START + (self.s as u16));
     data
   }
 
@@ -845,7 +845,7 @@ fn branch_if(condition: bool, cpu: &mut Cpu, data: &DataSource) -> InstructionRe
     //
     // We can detect if we are crossing pages by comparing the hi byte of the
     // new program counter with the hi bytes in the old program counter:
-    if new_pc & 0xFF00 != cpu.pc & 0xFF00 {
+    if (new_pc & 0xFF00) != (cpu.pc & 0xFF00) {
       cpu.cycles_left += 1;
     }
 
@@ -1243,7 +1243,7 @@ fn rel(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
     let neg_offset = !(offset as u16) + 1 & 0x00FF;
     cpu.pc - neg_offset
   } else {
-    cpu.pc + (offset as u16) & 0x00FF
+    cpu.pc + ((offset as u16) & 0x00FF)
   };
 
   AddressingModeResult {

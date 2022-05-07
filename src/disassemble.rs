@@ -160,9 +160,9 @@ pub fn disassemble(program: &Vec<u8>) -> Vec<DisassembledOperation> {
         if param & 0x80 != 0 {
           // Get the inverted version of the offset by applying two's complement:
           let neg_offset = !(param as u16) + 1 & 0x00FF;
-          format!("*-{:02}", neg_offset)
+          format!("*-{:02X}", neg_offset)
         } else {
-          format!("*+{:02}", param)
+          format!("*+{:02X}", param)
         }
       }
     };
