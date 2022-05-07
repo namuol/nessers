@@ -119,7 +119,7 @@ impl Game for NESDebugger {
   fn draw(&mut self, frame: &mut Frame, _timer: &Timer) {
     // Clear the current frame
     frame.clear(Color {
-      r: 0.3,
+      r: 0.6,
       g: 0.3,
       b: 0.6,
       a: 1.0,
@@ -200,7 +200,7 @@ impl UserInterface for NESDebugger {
     let first_pc_page = (self.nes.cpu.pc / 16) as u16;
     let mut ram_str = String::new();
     for page in 0..(STACK_SIZE / 16) {
-      let addr = ((first_pc_page + page as u16) as u16) * 16;
+      let addr = ((first_pc_page + page as u16) as u16).wrapping_mul(16);
       ram_str.push_str(&format!("{:04X}: ", addr));
       for offset in 0..16 {
         let addr = addr + offset;
@@ -222,7 +222,7 @@ impl UserInterface for NESDebugger {
     let mut program: Vec<u8> = vec![];
     let program_start = self.nes.cpu_read16(PC_INIT_ADDR);
     let mut pc = program_start;
-    while pc < self.nes.cpu.pc + 128 {
+    while pc < self.nes.cpu.pc.wrapping_add(128) {
       program.push(self.nes.cpu_read(pc));
       pc += 1;
     }
@@ -320,26 +320,29 @@ impl UserInterface for NESDebugger {
       None => ui,
     };
 
-    let mut tables = Column::new().height(window.height() as u32);
+    let mut tables = Column::new().height(window.height() as u32).spacing(8);
     tables = match &self.pattern_table_0_img {
-      Some(img) => tables.push(Image::new(&img)),
+      Some(img) => tables.push(Image::new(&img).width(256).height(256)),
       None => tables,
     };
     tables = match &self.pattern_table_1_img {
-      Some(img) => tables.push(Image::new(&img)),
+      Some(img) => tables.push(Image::new(&img).width(256).height(256)),
       None => tables,
     };
 
-    tables = match &self.palettes_imgs {
+    let mut palettes = Row::new().spacing(8);
+
+    palettes = match &self.palettes_imgs {
       Some(imgs) => {
         for i in 0..8 {
-          tables = tables.push(Image::new(&imgs[i]));
+          palettes = palettes.push(Image::new(&imgs[i]).width(32).height(8));
         }
-        tables
+        palettes
       }
-      None => tables,
+      None => palettes,
     };
 
+    tables = tables.push(palettes);
     ui = ui.push(tables);
 
     ui.into()

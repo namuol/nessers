@@ -51,6 +51,14 @@ impl Nes {
       cpu.clock(self);
       self.cpu = *cpu;
     }
+
+    if self.ppu.nmi {
+      self.ppu.nmi = false;
+      let cpu = &mut self.cpu.clone();
+      cpu.sig_nmi(self);
+      self.cpu = *cpu;
+    }
+
     self.tick += 1;
   }
 

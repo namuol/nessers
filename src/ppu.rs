@@ -24,12 +24,15 @@ pub struct Ppu {
   /// time we read data:
   data_buffer: u8,
 
-  /// The address
+  /// The address which will be written to or read from
   address: u16,
 
   status: u8,
   mask: u8,
   control: u8,
+
+  /// Whether a non-maskable interrupt has been triggered
+  pub nmi: bool,
 }
 
 pub trait StatusRegister {
@@ -116,23 +119,23 @@ pub trait ControlRegister {
 
 #[rustfmt::skip]
 impl ControlRegister for u8 {
-  fn nametable_x(self)        -> bool { (1 << 7) & self != 0 }
-  fn nametable_y(self)        -> bool { (1 << 6) & self != 0 }
-  fn increment_mode(self)     -> bool { (1 << 5) & self != 0 }
-  fn pattern_sprite(self)     -> bool { (1 << 4) & self != 0 }
-  fn pattern_background(self) -> bool { (1 << 3) & self != 0 }
-  fn sprite_size(self)        -> bool { (1 << 2) & self != 0 }
-  fn slave_mode(self)         -> bool { (1 << 1) & self != 0 }
-  fn enable_nmi(self)         -> bool { (1 << 0) & self != 0 }
+  fn nametable_x(self)        -> bool { (1 << 0) & self != 0 }
+  fn nametable_y(self)        -> bool { (1 << 1) & self != 0 }
+  fn increment_mode(self)     -> bool { (1 << 2) & self != 0 }
+  fn pattern_sprite(self)     -> bool { (1 << 3) & self != 0 }
+  fn pattern_background(self) -> bool { (1 << 4) & self != 0 }
+  fn sprite_size(self)        -> bool { (1 << 5) & self != 0 }
+  fn slave_mode(self)         -> bool { (1 << 6) & self != 0 }
+  fn enable_nmi(self)         -> bool { (1 << 7) & self != 0 }
 
-  fn set_nametable_x(self, v: bool)         -> u8 { self | v as u8 * (1 << 7) }
-  fn set_nametable_y(self, v: bool)         -> u8 { self | v as u8 * (1 << 6) }
-  fn set_increment_mode(self, v: bool)      -> u8 { self | v as u8 * (1 << 5) }
-  fn set_pattern_sprite(self, v: bool)      -> u8 { self | v as u8 * (1 << 4) }
-  fn set_pattern_background(self, v: bool)  -> u8 { self | v as u8 * (1 << 3) }
-  fn set_sprite_size(self, v: bool)         -> u8 { self | v as u8 * (1 << 2) }
-  fn set_slave_mode(self, v: bool)          -> u8 { self | v as u8 * (1 << 1) }
-  fn set_enable_nmi(self, v: bool)          -> u8 { self | v as u8 * (1 << 0) }
+  fn set_nametable_x(self, v: bool)         -> u8 { self | v as u8 * (1 << 0) }
+  fn set_nametable_y(self, v: bool)         -> u8 { self | v as u8 * (1 << 1) }
+  fn set_increment_mode(self, v: bool)      -> u8 { self | v as u8 * (1 << 2) }
+  fn set_pattern_sprite(self, v: bool)      -> u8 { self | v as u8 * (1 << 3) }
+  fn set_pattern_background(self, v: bool)  -> u8 { self | v as u8 * (1 << 4) }
+  fn set_sprite_size(self, v: bool)         -> u8 { self | v as u8 * (1 << 5) }
+  fn set_slave_mode(self, v: bool)          -> u8 { self | v as u8 * (1 << 6) }
+  fn set_enable_nmi(self, v: bool)          -> u8 { self | v as u8 * (1 << 7) }
 }
 
 impl Ppu {
@@ -155,10 +158,23 @@ impl Ppu {
       status: 0x00,
       mask: 0x00,
       control: 0x00,
+
+      nmi: false,
     }
   }
 
   pub fn clock(&mut self) {
+    if self.scanline == -1 && self.cycle == 1 {
+      self.status = self.status.set_vblank(false);
+    }
+
+    if self.scanline == 241 && self.cycle == 1 {
+      self.status = self.status.set_vblank(true);
+      if self.control.enable_nmi() {
+        self.nmi = true;
+      }
+    }
+
     if self.frame_complete {
       self.frame_complete = false;
     }
@@ -263,23 +279,20 @@ impl BusDevice for Ppu {
     }
 
     match addr % 8 {
-      0x0000 => Some(self.control),
-      0x0001 => Some(self.mask),
+      // 0x0000 => Some(self.control),
+      // 0x0001 => Some(self.mask),
       0x0002 => {
-        let fake_status = self.status.set_vblank(true);
-        println!("Fake status, masked {:08b}", fake_status & 0b111_00000);
-
         // Reading from the status register, we only care about the top 3 bits,
         // however according to NES lore, the lower 5 bits apparently contain
         // the contents from whatever data was last read from the PPU (which we
         // store as `self.data_buffer`):
-        let data = (
-          // HACK for now: Force VBlank to be true:
-          self.status.set_vblank(true) & 0b111_00000
-        ) | (self.data_buffer & 0b000_11111);
+        let data = (self.status & 0b111_00000) | (self.data_buffer & 0b000_11111);
 
         // Reading from the status register clears the vblank flag 🤷‍♂️
         self.status = self.status.set_vblank(false);
+
+        // Reading from the status register also resets the address latch:
+        self.address_latch = 0;
 
         Some(data)
       }
@@ -301,6 +314,10 @@ impl BusDevice for Ppu {
           return Some(self.data_buffer);
         }
 
+        // Auto-increment our address for the next operation if the developer
+        // so-chooses:
+        self.address += 1;
+
         Some(data)
       }
       _ => Some(0x00),
@@ -314,12 +331,12 @@ impl BusDevice for Ppu {
     }
 
     match addr % 8 {
-      0x0000 => {
-        self.control = data;
-      } // Control
-      0x0001 => {
-        self.mask = data;
-      } // Mask
+      // 0x0000 => {
+      //   self.control = data;
+      // } // Control
+      // 0x0001 => {
+      //   self.mask = data;
+      // } // Mask
       // 0x0002 => {} // Status
       // 0x0003 => {} // OAM Address
       // 0x0004 => {} // OAM Data
@@ -337,6 +354,10 @@ impl BusDevice for Ppu {
       }
       0x0007 => {
         self.ppu_write(self.address, data);
+
+        // Auto-increment our address for the next operation if the developer
+        // so-chooses:
+        self.address += 1;
       }
       _ => {}
     }
