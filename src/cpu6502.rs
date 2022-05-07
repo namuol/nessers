@@ -2123,6 +2123,17 @@ mod tests {
       }
       0x00
     }
+    fn safe_read(&self, addr: u16) -> u8 {
+      for device in self {
+        match device.safe_read(addr) {
+          None => (),
+          Some(data) => {
+            return data;
+          }
+        }
+      }
+      0x00
+    }
   }
 
   const ALL_FLAGS: [StatusFlag; 8] = [
@@ -2141,7 +2152,7 @@ mod tests {
     fn write(&mut self, _: u16, _: u8) -> std::option::Option<()> {
       None
     }
-    fn read(&mut self, _: u16) -> std::option::Option<u8> {
+    fn safe_read(&self, _: u16) -> std::option::Option<u8> {
       None
     }
   }

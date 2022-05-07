@@ -17,6 +17,7 @@ pub struct Cart {
   has_trainer: bool,
   pub cpu_mapper: CartCpuMapper,
   pub ppu_mapper: CartPpuMapper,
+  pub mapper_code: u8,
 }
 #[derive(PartialEq, Debug)]
 pub enum Mirroring {
@@ -38,11 +39,11 @@ pub struct CartPpuMapper {
   mapper: Mapper,
 }
 
-const HEADER_SIZE: usize = 16;
+pub const HEADER_SIZE: usize = 16;
 
-const FLAG_MIRRORING: u8 = 0b00000001;
-const FLAG_HAS_RAM: u8 = 0b00000010;
-const FLAG_HAS_TRAINER: u8 = 0b00000100;
+pub const FLAG_MIRRORING: u8 = 0b00000001;
+pub const FLAG_HAS_RAM: u8 = 0b00000010;
+pub const FLAG_HAS_TRAINER: u8 = 0b00000100;
 
 impl Cart {
   pub fn new(data: &Vec<u8>) -> Result<Cart, &'static str> {
@@ -98,6 +99,7 @@ impl Cart {
       mirroring,
       has_ram,
       has_trainer,
+      mapper_code,
       ppu_mapper: CartPpuMapper {
         mapper_code,
         mapper: MAPPERS[mapper_code as usize].clone(),
@@ -120,7 +122,7 @@ impl Cart {
 }
 
 impl BusDevice for CartCpuMapper {
-  fn read(&mut self, addr: u16) -> Option<u8> {
+  fn safe_read(&self, addr: u16) -> Option<u8> {
     let mapped_addr = (self.mapper.cpu_read)(addr, self.num_prg_banks)?;
     Some(self.prg[mapped_addr as usize])
   }
@@ -132,7 +134,7 @@ impl BusDevice for CartCpuMapper {
 }
 
 impl BusDevice for CartPpuMapper {
-  fn read(&mut self, addr: u16) -> Option<u8> {
+  fn safe_read(&self, addr: u16) -> Option<u8> {
     let mapped_addr = (self.mapper.ppu_read)(addr, self.num_chr_banks)?;
     Some(self.chr[mapped_addr as usize])
   }

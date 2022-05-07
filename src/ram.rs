@@ -32,7 +32,8 @@ impl BusDevice for Ram {
     self.buf[addr as usize] = data;
     Some(())
   }
-  fn read(&mut self, addr: u16) -> Option<u8> {
+
+  fn safe_read(&self, addr: u16) -> Option<u8> {
     if !self.in_range(addr) {
       return None;
     }

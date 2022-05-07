@@ -239,11 +239,11 @@ impl UserInterface for NESDebugger {
     let mut program: Vec<u8> = vec![];
     let program_start = self.nes.cpu_read16(PC_INIT_ADDR);
     let mut pc = program_start;
-    while pc < self.nes.cpu.pc.wrapping_add(128) {
-      program.push(self.nes.cpu_read(pc));
+    while pc < self.nes.cpu.pc + 128 {
+      program.push(self.nes.safe_cpu_read(pc));
       pc += 1;
     }
-    let disassembled = disassemble(&program);
+    let disassembled = disassemble(&program, 0x0000, 0x0000, None);
     let mut disassembled_output: Vec<String> = vec![];
     let mut pc_idx: i32 = 0;
     let mut idx: i32 = 0;

@@ -71,6 +71,12 @@ impl Nes {
     }
   }
 
+  pub fn step_with_callback<F>(&mut self, mut callback: F)
+  where
+    F: FnMut(&mut Self),
+  {
+  }
+
   pub fn frame(&mut self) {
     loop {
       self.clock();
@@ -238,6 +244,10 @@ impl Nes {
     (self as &mut dyn Bus<Cpu>).read(addr)
   }
 
+  pub fn cpu_write(&mut self, addr: u16, data: u8) {
+    (self as &mut dyn Bus<Cpu>).write(addr, data)
+  }
+
   pub fn cpu_read16(&mut self, addr: u16) -> u16 {
     (self as &mut dyn Bus<Cpu>).read16(addr)
   }
@@ -250,11 +260,25 @@ impl Nes {
     (self as &mut dyn Bus<Ppu>).read16(addr)
   }
 
+  pub fn safe_cpu_read(&self, addr: u16) -> u8 {
+    (self as &dyn Bus<Cpu>).safe_read(addr)
+  }
+
   // END -------- Hacky? Helper functions to avoid ugly manual dyn cast -------
 }
 
 /// The CPU's Bus
 impl Bus<Cpu> for Nes {
+  fn safe_read(&self, addr: u16) -> u8 {
+    match None // Hehe, using None here just for formatting purposes:
+      .or(self.cart.cpu_mapper.safe_read(addr))
+      .or(self.ram_mirror.safe_read(&self.ram, addr))
+    {
+      Some(data) => data,
+      None => 0x00,
+    }
+  }
+
   fn read(&mut self, addr: u16) -> u8 {
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.cpu_mapper.read(addr))
@@ -276,6 +300,10 @@ impl Bus<Cpu> for Nes {
 
 /// The PPU's Bus
 impl Bus<Ppu> for Nes {
+  fn safe_read(&self, _: u16) -> u8 {
+    todo!()
+  }
+
   fn read(&mut self, addr_: u16) -> u8 {
     let addr = addr_ & 0x3FFF;
     match None // Hehe, using None here just for formatting purposes:
@@ -293,5 +321,194 @@ impl Bus<Ppu> for Nes {
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.ppu_mapper.write(addr, data))
       .or_else(|| Some(self.ppu.ppu_write(addr, data)));
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use crate::{
+    cart::{CartPpuMapper, FLAG_HAS_RAM, FLAG_MIRRORING},
+    disassemble,
+    mapper::MAPPERS,
+    palette::Color,
+  };
+
+  fn get_debug_line(nes: &Nes) -> String {
+    // Example:
+    // ```
+    // C000  4C F5 C5  JMP $C5F5                       A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7
+    // ^^^^  ^^-^^-^^  ^^^-^^^^^                         ^^   ^^   ^^   ^^    ^^ ^^^^^^^^^^^^^^^^^
+    // pc | inst data | disassembled inst              | a  | x  | y|status|stack_pointer| Discarded, for now
+    // ```
+
+    // Get a slice of the program that just contains enough data to disassemble
+    // the current instruction; to do this we read from the CPU bus at the
+    // current program counter for ~8 bytes or so which should be more than
+    // enough.
+    let mut program_slice: Vec<u8> = vec![];
+    for addr in nes.cpu.pc..(nes.cpu.pc + 8) {
+      // We use `safe_cpu_read` since it won't mutate anything; it skips over
+      // read operations that may mutate parts of our device. This isn't a
+      // "true" read as it will skip over things like reading PPU registers
+      // since those mutate state on the PPU.
+      program_slice.push(nes.safe_cpu_read(addr));
+    }
+
+    let output = disassemble(&program_slice, nes.cpu.pc, nes.cpu.pc, Some(nes));
+    let disassembled = &output[0];
+
+    let instruction_data = disassembled
+      .data
+      .iter()
+      .map(|byte| format!("{:02X}", byte))
+      .collect::<Vec<String>>()
+      .join(" ");
+
+    let cpu = &nes.cpu;
+    format!(
+      "{:04X}  {:<8}  {} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+      nes.cpu.pc,
+      instruction_data,
+      disassembled.instruction_name,
+      disassembled.params,
+      cpu.a,
+      cpu.x,
+      cpu.y,
+      cpu.status,
+      cpu.s
+    )
+  }
+
+  fn make_test_nes() -> Nes {
+    let mut cart_data = vec![
+      0x4E,                                   // N
+      0x45,                                   // E
+      0x53,                                   // S
+      0x1A,                                   // EOF
+      0x01,                                   // 1 * 16K PRG
+      0x01,                                   // 1 * 8K CHR
+      (0x00 | FLAG_MIRRORING | FLAG_HAS_RAM), // Lower nybble of mapper code + Flags
+      (0x00 | 0x01),                          // Upper nybble of mapper code + iNES version
+      // Pad up to 16 bytes, which is the minimum for this function not to
+      // return an `Err`.
+      //
+      // These bytes are actually used by the NES 2.0 format, but for now I'm
+      // just focusing on the most basic format.
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+      0x00,
+    ];
+
+    // Fill PRG with 0x42
+    cart_data.resize(16 + 0 + 16 * 1024, 0x42);
+    // Fill CHR with 0x43
+    cart_data.resize(16 + 0 + 16 * 1024 + 8 * 1024, 0x43);
+    let cpu = Cpu::new();
+
+    // 2K internal RAM, mirrored to 8K
+    let ram = Ram::new(0x0000, 2 * 1024);
+    let ram_mirror = Mirror::new(0x0000, 8 * 1024);
+
+    // PPU Registers, mirrored for 8K
+    let ppu = Ppu::new(Palette {
+      colors: [Color { r: 0, g: 0, b: 0 }; 64],
+      map: [0x00; 32],
+    });
+    let ppu_registers_mirror = Mirror::new(0x2000, 8 * 1024);
+
+    let cart = Cart::new(&cart_data).unwrap();
+
+    Nes {
+      tick: 0,
+      cpu,
+      ppu,
+      cart,
+      ram_mirror,
+      ram,
+      ppu_registers_mirror,
+    }
+  }
+
+  fn debug_line_test(prog_data: &Vec<u8>, cpu: Cpu, expected_output: &'static str) {
+    let mut nes = make_test_nes();
+
+    nes.cpu.pc = 0xCC59;
+
+    nes.cart.cpu_mapper.write(nes.cpu.pc, 0x00);
+    nes.cpu = cpu;
+
+    // let prog_slice = vec![0xD0, 0x03];
+    for i in 0..prog_data.len() {
+      nes.cpu_write(nes.cpu.pc + (i as u16), prog_data[i]);
+    }
+
+    assert_eq!(get_debug_line(&nes), expected_output);
+  }
+
+  #[test]
+  fn test_get_debug_line() {
+    debug_line_test(
+      &vec![0xF0, 0x04],
+      Cpu {
+        pc: 0xC7ED,
+        a: 0x6F,
+        x: 0x00,
+        y: 0x00,
+        status: 0x6F,
+        s: 0xFB,
+        cycles_left: 0,
+      },
+      "C7ED  F0 04     BEQ $C7F3                       A:6F X:00 Y:00 P:6F SP:FB",
+    );
+    debug_line_test(
+      &vec![0xA9, 0x70],
+      Cpu {
+        pc: 0xD082,
+        a: 0xF5,
+        x: 0x00,
+        y: 0x5F,
+        status: 0x65,
+        s: 0xFB,
+        cycles_left: 0,
+      },
+      "D082  A9 70     LDA #$70                        A:F5 X:00 Y:5F P:65 SP:FB",
+    );
+
+    debug_line_test(
+      &vec![0x8D, 0x00, 0x03],
+      Cpu {
+        pc: 0xD084,
+        a: 0x70,
+        x: 0x00,
+        y: 0x5F,
+        status: 0x65,
+        s: 0xFB,
+        cycles_left: 0,
+      },
+      "D084  8D 00 03  STA $0300 = EF                  A:70 X:00 Y:5F P:65 SP:FB",
+    )
+  }
+
+  // We're jumping into testing things like the PPU without really validating
+  // our CPU.
+  //
+  // Let's write a test that uses `nestest.nes` to validate CPU behavior (or at
+  // least provides a snapshot we can keep track of).
+
+  #[test]
+  fn nestest() {
+    let mut nes = match Nes::new(
+      "src/test_fixtures/nestest.nes",
+      "src/test_fixtures/ntscpalette.pal",
+    ) {
+      Ok(n) => n,
+      Err(msg) => panic!("{}", msg),
+    };
   }
 }

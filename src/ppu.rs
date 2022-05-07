@@ -324,6 +324,10 @@ impl BusDevice for Ppu {
     }
   }
 
+  fn safe_read(&self, addr: u16) -> Option<u8> {
+    todo!()
+  }
+
   // From `cpuWrite` in https://www.youtube.com/watch?v=xdzOvpYPmGE&list=PLrOv9FMX8xJHqMvSGB_9G9nZZ_4IgteYf&index=4
   fn write(&mut self, addr: u16, data: u8) -> Option<()> {
     if !self.in_range(addr) {

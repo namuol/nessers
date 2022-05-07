@@ -28,6 +28,14 @@ impl Mirror {
     let master_addr = master.start() + (addr % master.size() as u16);
     master.read(master_addr)
   }
+
+  pub fn safe_read(&self, master: &dyn RangedBusDevice, addr: u16) -> Option<u8> {
+    if !self.in_range(addr) {
+      return None;
+    }
+    let master_addr = master.start() + (addr % master.size() as u16);
+    master.safe_read(master_addr)
+  }
 }
 
 impl BusDeviceRange for Mirror {
