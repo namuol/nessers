@@ -3,6 +3,7 @@ use crate::cpu6502::AddressingMode::*;
 use crate::cpu6502::Cpu;
 use crate::cpu6502::Instruction::*;
 use crate::cpu6502::Operation;
+use crate::nes::Nes;
 
 pub struct DisassembledOperation {
   pub instruction_name: String,
@@ -11,13 +12,13 @@ pub struct DisassembledOperation {
   pub data: Vec<u8>,
 }
 
-pub fn disassemble(bus: &dyn Bus<Cpu>, start: u16, length: u16) -> Vec<DisassembledOperation> {
+pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperation> {
   let mut output: Vec<DisassembledOperation> = vec![];
   let mut pc = start;
   while pc < start + length {
     let mut data = vec![];
     let addr = pc;
-    let operation: &Operation = bus.safe_read(pc).into();
+    let operation: &Operation = nes.safe_cpu_read(pc).into();
     let pc_start = pc;
     pc += 1;
     let instruction_name: String = match operation.instruction {
@@ -87,71 +88,86 @@ pub fn disassemble(bus: &dyn Bus<Cpu>, start: u16, length: u16) -> Vec<Disassemb
       }
       IMM => {
         // Immediate; read one byte:
-        let param = bus.safe_read(pc);
+        let param = nes.safe_cpu_read(pc);
         pc += 1;
         format!("#${:02X}", param)
       }
       ZP0 => {
         // Zero Page; read one byte:
-        let param = bus.safe_read(pc);
+        let param = nes.safe_cpu_read(pc);
+        let data_at = nes.safe_cpu_read(param as u16);
         pc += 1;
-        format!("${:02X}", param)
+        format!("${:02X} = {:02X}", param, data_at)
       }
       ZPX => {
         // Zero Page with X offset; read one byte:
-        let param = bus.safe_read(pc);
+        let param = nes.safe_cpu_read(pc);
         pc += 1;
         format!("${:02X},X", param)
       }
       ZPY => {
         // Zero Page with Y offset; read one byte:
-        let param = bus.safe_read(pc);
+        let param = nes.safe_cpu_read(pc);
         pc += 1;
         format!("${:02X},Y", param)
       }
       ABS => {
         // Absolute; read two bytes:
-        let lo = bus.safe_read(pc) as u16;
+        let lo = nes.safe_cpu_read(pc) as u16;
         pc += 1;
-        let hi = bus.safe_read(pc) as u16;
+        let hi = nes.safe_cpu_read(pc) as u16;
         pc += 1;
         format!("${:04X}", (hi << 8) | lo)
       }
       ABX => {
         // Absolute, X; read two bytes:
-        let lo = bus.safe_read(pc) as u16;
+        let lo = nes.safe_cpu_read(pc) as u16;
         pc += 1;
-        let hi = bus.safe_read(pc) as u16;
+        let hi = nes.safe_cpu_read(pc) as u16;
         pc += 1;
         format!("${:04X},X", (hi << 8) | lo)
       }
       ABY => {
         // Absolute, Y; read two bytes:
-        let lo = bus.safe_read(pc) as u16;
+        let lo = nes.safe_cpu_read(pc) as u16;
         pc += 1;
-        let hi = bus.safe_read(pc) as u16;
+        let hi = nes.safe_cpu_read(pc) as u16;
         pc += 1;
         format!("${:04X},Y", (hi << 8) | lo)
       }
       IND => {
         // Indirect, Y; read four bytes:
-        let lo = bus.safe_read(pc) as u16;
+        let lo = nes.safe_cpu_read(pc) as u16;
         pc += 1;
-        let hi = bus.safe_read(pc) as u16;
+        let hi = nes.safe_cpu_read(pc) as u16;
         pc += 1;
         format!("(${:04X})", (hi << 8) | lo)
       }
       IZX => {
         // Indexed Indirect; read one byte:
-        let param = bus.safe_read(pc);
+        let param = nes.safe_cpu_read(pc);
         pc += 1;
         format!("(${:02X},X)", param)
       }
       IZY => {
         // Indirect Indexed; read one byte:
-        let param = bus.safe_read(pc);
+        let param = nes.safe_cpu_read(pc);
+        // Our pointer lives in the zeroth page, so we only need to read one byte
+        let ptr = param as u16 & 0x00FF;
+        let addr_abs = nes.safe_cpu_read16(ptr) + nes.cpu.y as u16;
+
+        let data_at = nes.safe_cpu_read(addr_abs);
+
         pc += 1;
-        format!("(${:02X}),Y", param)
+        format!(
+          "(${:02X}),Y = {:04X} @ {:04X} = {:02X}",
+          param,
+          // FIXME: What should this really be?
+          addr_abs,
+          // FIXME: What should this really be?
+          addr_abs,
+          data_at
+        )
       }
       ACC => {
         // Accumulator; nothing to read:
@@ -160,7 +176,7 @@ pub fn disassemble(bus: &dyn Bus<Cpu>, start: u16, length: u16) -> Vec<Disassemb
       REL => {
         let addr = pc;
         // Relative; read one byte:
-        let param = bus.safe_read(addr);
+        let param = nes.safe_cpu_read(addr);
 
         pc += 1;
 
@@ -175,7 +191,7 @@ pub fn disassemble(bus: &dyn Bus<Cpu>, start: u16, length: u16) -> Vec<Disassemb
     };
 
     for pc_ in pc_start..pc {
-      data.push(bus.safe_read(pc_));
+      data.push(nes.safe_cpu_read(pc_));
     }
 
     output.push(DisassembledOperation {

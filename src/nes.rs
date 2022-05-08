@@ -304,6 +304,9 @@ impl Nes {
   pub fn safe_cpu_read(&self, addr: u16) -> u8 {
     (self as &dyn Bus<Cpu>).safe_read(addr)
   }
+  pub fn safe_cpu_read16(&self, addr: u16) -> u16 {
+    (self as &dyn Bus<Cpu>).safe_read16(addr)
+  }
 
   // END -------- Hacky? Helper functions to avoid ugly manual dyn cast -------
 }
@@ -486,7 +489,7 @@ mod tests {
   }
 
   #[test]
-  fn test_run() {
+  fn test_format_trace() {
     let mut nes = make_test_nes();
     nes.cpu_write(100, 0xa2);
     nes.cpu_write(101, 0x01);
@@ -518,12 +521,35 @@ mod tests {
     nes.step();
   }
 
+  #[test]
+  fn test_format_mem_access() {
+    let mut nes = make_test_nes();
+    // ORA ($33), Y
+    nes.cpu_write(100, 0x11);
+    nes.cpu_write(101, 0x33);
+
+    //data
+    nes.cpu_write(0x0033, 00);
+    nes.cpu_write(0x0034, 04);
+
+    //target cell
+    nes.cpu_write(0x0400, 0xAA);
+
+    nes.cpu = Cpu::new();
+    nes.cpu.pc = 100;
+    nes.cpu.y = 0;
+
+    assert_eq!(
+      "0064  11 33     ORA ($33),Y = 0400 @ 0400 = AA  A:00 X:00 Y:00 P:24 SP:FD",
+      nes.trace()
+    );
+  }
   // We're jumping into testing things like the PPU without really validating
   // our CPU.
   //
   // Let's write a test that uses `nestest.nes` to validate CPU behavior (or at
   // least provides a snapshot we can keep track of).
-
+  
   #[test]
   fn nestest() {
     let mut nes = match Nes::new(
@@ -533,5 +559,106 @@ mod tests {
       Ok(n) => n,
       Err(msg) => panic!("{}", msg),
     };
+
+    nes.cpu.pc = 0xC000;
+
+    // First few traces:
+    let expected_traces = vec![
+      "C000  4C F5 C5  JMP $C5F5                       A:00 X:00 Y:00 P:24 SP:FD",
+      "C5F5  A2 00     LDX #$00                        A:00 X:00 Y:00 P:24 SP:FD",
+      "C5F7  86 00     STX $00 = 00                    A:00 X:00 Y:00 P:26 SP:FD",
+      "C5F9  86 10     STX $10 = 00                    A:00 X:00 Y:00 P:26 SP:FD",
+      "C5FB  86 11     STX $11 = 00                    A:00 X:00 Y:00 P:26 SP:FD",
+      "C5FD  20 2D C7  JSR $C72D                       A:00 X:00 Y:00 P:26 SP:FD",
+      "C72D  EA        NOP                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C72E  38        SEC                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C72F  B0 04     BCS $C735                       A:00 X:00 Y:00 P:27 SP:FB",
+      "C735  EA        NOP                             A:00 X:00 Y:00 P:27 SP:FB",
+      "C736  18        CLC                             A:00 X:00 Y:00 P:27 SP:FB",
+      "C737  B0 03     BCS $C73C                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C739  4C 40 C7  JMP $C740                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C740  EA        NOP                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C741  38        SEC                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C742  90 03     BCC $C747                       A:00 X:00 Y:00 P:27 SP:FB",
+      "C744  4C 4B C7  JMP $C74B                       A:00 X:00 Y:00 P:27 SP:FB",
+      "C74B  EA        NOP                             A:00 X:00 Y:00 P:27 SP:FB",
+      "C74C  18        CLC                             A:00 X:00 Y:00 P:27 SP:FB",
+      "C74D  90 04     BCC $C753                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C753  EA        NOP                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C754  A9 00     LDA #$00                        A:00 X:00 Y:00 P:26 SP:FB",
+      "C756  F0 04     BEQ $C75C                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C75C  EA        NOP                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C75D  A9 40     LDA #$40                        A:00 X:00 Y:00 P:26 SP:FB",
+      "C75F  F0 03     BEQ $C764                       A:40 X:00 Y:00 P:24 SP:FB",
+      "C761  4C 68 C7  JMP $C768                       A:40 X:00 Y:00 P:24 SP:FB",
+      "C768  EA        NOP                             A:40 X:00 Y:00 P:24 SP:FB",
+      "C769  A9 40     LDA #$40                        A:40 X:00 Y:00 P:24 SP:FB",
+      "C76B  D0 04     BNE $C771                       A:40 X:00 Y:00 P:24 SP:FB",
+      "C771  EA        NOP                             A:40 X:00 Y:00 P:24 SP:FB",
+      "C772  A9 00     LDA #$00                        A:40 X:00 Y:00 P:24 SP:FB",
+      "C774  D0 03     BNE $C779                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C776  4C 7D C7  JMP $C77D                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C77D  EA        NOP                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C77E  A9 FF     LDA #$FF                        A:00 X:00 Y:00 P:26 SP:FB",
+      "C780  85 01     STA $01 = 00                    A:FF X:00 Y:00 P:A4 SP:FB",
+      "C782  24 01     BIT $01 = FF                    A:FF X:00 Y:00 P:A4 SP:FB",
+      "C784  70 04     BVS $C78A                       A:FF X:00 Y:00 P:E4 SP:FB",
+      "C78A  EA        NOP                             A:FF X:00 Y:00 P:E4 SP:FB",
+      "C78B  24 01     BIT $01 = FF                    A:FF X:00 Y:00 P:E4 SP:FB",
+      "C78D  50 03     BVC $C792                       A:FF X:00 Y:00 P:E4 SP:FB",
+      "C78F  4C 96 C7  JMP $C796                       A:FF X:00 Y:00 P:E4 SP:FB",
+      "C796  EA        NOP                             A:FF X:00 Y:00 P:E4 SP:FB",
+      "C797  A9 00     LDA #$00                        A:FF X:00 Y:00 P:E4 SP:FB",
+      "C799  85 01     STA $01 = FF                    A:00 X:00 Y:00 P:66 SP:FB",
+      "C79B  24 01     BIT $01 = 00                    A:00 X:00 Y:00 P:66 SP:FB",
+      "C79D  50 04     BVC $C7A3                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C7A3  EA        NOP                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C7A4  24 01     BIT $01 = 00                    A:00 X:00 Y:00 P:26 SP:FB",
+      "C7A6  70 03     BVS $C7AB                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C7A8  4C AF C7  JMP $C7AF                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C7AF  EA        NOP                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C7B0  A9 00     LDA #$00                        A:00 X:00 Y:00 P:26 SP:FB",
+      "C7B2  10 04     BPL $C7B8                       A:00 X:00 Y:00 P:26 SP:FB",
+      "C7B8  EA        NOP                             A:00 X:00 Y:00 P:26 SP:FB",
+      "C7B9  A9 80     LDA #$80                        A:00 X:00 Y:00 P:26 SP:FB",
+      "C7BB  10 03     BPL $C7C0                       A:80 X:00 Y:00 P:A4 SP:FB",
+      "C7BD  4C D9 C7  JMP $C7D9                       A:80 X:00 Y:00 P:A4 SP:FB",
+      "C7D9  EA        NOP                             A:80 X:00 Y:00 P:A4 SP:FB",
+      "C7DA  60        RTS                             A:80 X:00 Y:00 P:A4 SP:FB",
+      "C600  20 DB C7  JSR $C7DB                       A:80 X:00 Y:00 P:A4 SP:FD",
+      "C7DB  EA        NOP                             A:80 X:00 Y:00 P:A4 SP:FB",
+      "C7DC  A9 FF     LDA #$FF                        A:80 X:00 Y:00 P:A4 SP:FB",
+      "C7DE  85 01     STA $01 = 00                    A:FF X:00 Y:00 P:A4 SP:FB",
+      "C7E0  24 01     BIT $01 = FF                    A:FF X:00 Y:00 P:A4 SP:FB",
+      "C7E2  A9 00     LDA #$00                        A:FF X:00 Y:00 P:E4 SP:FB",
+      "C7E4  38        SEC                             A:00 X:00 Y:00 P:66 SP:FB",
+      "C7E5  78        SEI                             A:00 X:00 Y:00 P:67 SP:FB",
+      "C7E6  F8        SED                             A:00 X:00 Y:00 P:67 SP:FB",
+      "C7E7  08        PHP                             A:00 X:00 Y:00 P:6F SP:FB",
+      "C7E8  68        PLA                             A:00 X:00 Y:00 P:6F SP:FA",
+      "C7E9  29 EF     AND #$EF                        A:7F X:00 Y:00 P:6D SP:FB",
+      "C7EB  C9 6F     CMP #$6F                        A:6F X:00 Y:00 P:6D SP:FB",
+      "C7ED  F0 04     BEQ $C7F3                       A:6F X:00 Y:00 P:6F SP:FB",
+      "C7F3  EA        NOP                             A:6F X:00 Y:00 P:6F SP:FB",
+      "C7F4  A9 40     LDA #$40                        A:6F X:00 Y:00 P:6F SP:FB",
+      "C7F6  85 01     STA $01 = FF                    A:40 X:00 Y:00 P:6D SP:FB",
+      "C7F8  24 01     BIT $01 = 40                    A:40 X:00 Y:00 P:6D SP:FB",
+      "C7FA  D8        CLD                             A:40 X:00 Y:00 P:6D SP:FB",
+      "C7FB  A9 10     LDA #$10                        A:40 X:00 Y:00 P:65 SP:FB",
+      "C7FD  18        CLC                             A:10 X:00 Y:00 P:65 SP:FB",
+      "C7FE  08        PHP                             A:10 X:00 Y:00 P:64 SP:FB",
+      "C7FF  68        PLA                             A:10 X:00 Y:00 P:64 SP:FA",
+      "C800  29 EF     AND #$EF                        A:74 X:00 Y:00 P:64 SP:FB",
+      "C802  C9 64     CMP #$64                        A:64 X:00 Y:00 P:64 SP:FB",
+      "C804  F0 04     BEQ $C80A                       A:64 X:00 Y:00 P:67 SP:FB",
+      "C80A  EA        NOP                             A:64 X:00 Y:00 P:67 SP:FB",
+      "C80B  A9 80     LDA #$80                        A:64 X:00 Y:00 P:67 SP:FB",
+      "C80D  85 01     STA $01 = 40                    A:80 X:00 Y:00 P:E5 SP:FB",
+    ];
+
+    for expected_trace in expected_traces {
+      assert_eq!(nes.trace(), expected_trace);
+      nes.step();
+    }
   }
 }

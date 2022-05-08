@@ -809,7 +809,7 @@ fn jsr(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
   let return_addr = cpu.pc - 1;
   let return_hi: u8 = (return_addr >> 8) as u8;
   cpu.push(bus, return_hi);
-  let return_lo: u8 = (return_addr << 8) as u8;
+  let return_lo: u8 = (return_addr & 0x00FF) as u8;
   cpu.push(bus, return_lo);
 
   cpu.pc = data.addr;
@@ -824,6 +824,7 @@ fn rts(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instruction
   let return_hi = cpu.pull(bus);
   let return_addr = ((return_hi as u16) << 8) | return_lo as u16;
   cpu.pc = return_addr;
+  cpu.pc += 1;
   InstructionResult {
     may_need_extra_cycle: false,
   }
