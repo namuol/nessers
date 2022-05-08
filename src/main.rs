@@ -236,26 +236,19 @@ impl UserInterface for NESDebugger {
       .push(Text::new("---").size(30))
       .push(Text::new(&ram_str).size(30));
 
-    let mut program: Vec<u8> = vec![];
-    let program_start = self.nes.cpu_read16(PC_INIT_ADDR);
-    let mut pc = program_start;
-    while pc < self.nes.cpu.pc + 128 {
-      program.push(self.nes.safe_cpu_read(pc));
-      pc += 1;
-    }
-    let disassembled = disassemble(&program, 0x0000, 0x0000, None);
+    let disassembled = disassemble(&self.nes, self.nes.cpu.pc, 128);
     let mut disassembled_output: Vec<String> = vec![];
     let mut pc_idx: i32 = 0;
     let mut idx: i32 = 0;
     for o in disassembled {
-      let current = self.nes.cpu.pc == program_start + o.offset;
+      let current = self.nes.cpu.pc == o.addr;
       if current {
         pc_idx = idx;
       }
       disassembled_output.push(format!(
         "{} ${:04X}: {} {}",
         if current { ">" } else { " " },
-        program_start + o.offset,
+        o.addr,
         o.instruction_name,
         o.params
       ));

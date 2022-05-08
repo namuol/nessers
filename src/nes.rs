@@ -254,16 +254,7 @@ impl Nes {
     // the current instruction; to do this we read from the CPU bus at the
     // current program counter for ~8 bytes or so which should be more than
     // enough.
-    let mut program_slice: Vec<u8> = vec![];
-    for addr in self.cpu.pc..(self.cpu.pc + 8) {
-      // We use `safe_cpu_read` since it won't mutate anything; it skips over
-      // read operations that may mutate parts of our device. This isn't a
-      // "true" read as it will skip over things like reading PPU registers
-      // since those mutate state on the PPU.
-      program_slice.push(self.safe_cpu_read(addr));
-    }
-
-    let output = disassemble(&program_slice, self.cpu.pc, self.cpu.pc, Some(self));
+    let output = disassemble(self, self.cpu.pc, 8);
     let disassembled = &output[0];
 
     let instruction_data = disassembled

@@ -7,22 +7,17 @@ use crate::cpu6502::Operation;
 pub struct DisassembledOperation {
   pub instruction_name: String,
   pub params: String,
-  pub offset: u16,
+  pub addr: u16,
   pub data: Vec<u8>,
 }
 
-pub fn disassemble(
-  program: &Vec<u8>,
-  program_start: u16,
-  pc_start: u16,
-  bus: Option<&dyn Bus<Cpu>>,
-) -> Vec<DisassembledOperation> {
+pub fn disassemble(bus: &dyn Bus<Cpu>, start: u16, length: u16) -> Vec<DisassembledOperation> {
   let mut output: Vec<DisassembledOperation> = vec![];
-  let mut pc = 0x0000;
-  while pc < program.len() {
+  let mut pc = start;
+  while pc < start + length {
     let mut data = vec![];
-    let offset = pc;
-    let operation: &Operation = program[pc].into();
+    let addr = pc;
+    let operation: &Operation = bus.safe_read(pc).into();
     let pc_start = pc;
     pc += 1;
     let instruction_name: String = match operation.instruction {
@@ -92,69 +87,69 @@ pub fn disassemble(
       }
       IMM => {
         // Immediate; read one byte:
-        let param = program[pc % program.len()];
+        let param = bus.safe_read(pc);
         pc += 1;
         format!("#${:02X}", param)
       }
       ZP0 => {
         // Zero Page; read one byte:
-        let param = program[pc % program.len()];
+        let param = bus.safe_read(pc);
         pc += 1;
         format!("${:02X}", param)
       }
       ZPX => {
         // Zero Page with X offset; read one byte:
-        let param = program[pc % program.len()];
+        let param = bus.safe_read(pc);
         pc += 1;
         format!("${:02X},X", param)
       }
       ZPY => {
         // Zero Page with Y offset; read one byte:
-        let param = program[pc % program.len()];
+        let param = bus.safe_read(pc);
         pc += 1;
         format!("${:02X},Y", param)
       }
       ABS => {
         // Absolute; read two bytes:
-        let lo = program[pc % program.len()] as u16;
+        let lo = bus.safe_read(pc) as u16;
         pc += 1;
-        let hi = program[pc % program.len()] as u16;
+        let hi = bus.safe_read(pc) as u16;
         pc += 1;
         format!("${:04X}", (hi << 8) | lo)
       }
       ABX => {
         // Absolute, X; read two bytes:
-        let lo = program[pc % program.len()] as u16;
+        let lo = bus.safe_read(pc) as u16;
         pc += 1;
-        let hi = program[pc % program.len()] as u16;
+        let hi = bus.safe_read(pc) as u16;
         pc += 1;
         format!("${:04X},X", (hi << 8) | lo)
       }
       ABY => {
         // Absolute, Y; read two bytes:
-        let lo = program[pc % program.len()] as u16;
+        let lo = bus.safe_read(pc) as u16;
         pc += 1;
-        let hi = program[pc % program.len()] as u16;
+        let hi = bus.safe_read(pc) as u16;
         pc += 1;
         format!("${:04X},Y", (hi << 8) | lo)
       }
       IND => {
         // Indirect, Y; read four bytes:
-        let lo = program[pc % program.len()] as u16;
+        let lo = bus.safe_read(pc) as u16;
         pc += 1;
-        let hi = program[pc % program.len()] as u16;
+        let hi = bus.safe_read(pc) as u16;
         pc += 1;
         format!("(${:04X})", (hi << 8) | lo)
       }
       IZX => {
         // Indexed Indirect; read one byte:
-        let param = program[pc % program.len()];
+        let param = bus.safe_read(pc);
         pc += 1;
         format!("(${:02X},X)", param)
       }
       IZY => {
         // Indirect Indexed; read one byte:
-        let param = program[pc % program.len()];
+        let param = bus.safe_read(pc);
         pc += 1;
         format!("(${:02X}),Y", param)
       }
@@ -163,33 +158,30 @@ pub fn disassemble(
         "A".into()
       }
       REL => {
-        let addr = pc % program.len();
+        let addr = pc;
         // Relative; read one byte:
-        let param = program[addr];
+        let param = bus.safe_read(addr);
 
         pc += 1;
 
         if param & 0x80 != 0 {
           // Get the inverted version of the offset by applying two's complement:
           let neg_offset = !(param as u16) + 1 & 0x00FF;
-          format!(
-            "${:04X}",
-            (program_start as usize) + pc - (neg_offset as usize)
-          )
+          format!("${:04X}", pc - neg_offset)
         } else {
-          format!("${:04X}", (program_start as usize) + pc + (param as usize))
+          format!("${:04X}", pc + param as u16)
         }
       }
     };
 
     for pc_ in pc_start..pc {
-      data.push(program[pc_]);
+      data.push(bus.safe_read(pc_));
     }
 
     output.push(DisassembledOperation {
       instruction_name,
       params,
-      offset: program_start + offset as u16,
+      addr,
       data,
     });
   }
