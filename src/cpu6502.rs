@@ -575,7 +575,7 @@ fn pla(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instruction
 
 /// Pull Processor Status
 fn plp(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
-  cpu.status = cpu.pull(bus) & !(Break as u8);
+  cpu.status = cpu.pull(bus) & !(Break as u8) & !(Unused as u8);
 
   InstructionResult {
     may_need_extra_cycle: false,
