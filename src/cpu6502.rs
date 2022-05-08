@@ -554,7 +554,7 @@ fn pha(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instruction
 
 /// Push Processor Status
 fn php(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
-  cpu.push(bus, cpu.status);
+  cpu.push(bus, cpu.status | (Break as u8) | (Unused as u8));
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -575,7 +575,7 @@ fn pla(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instruction
 
 /// Pull Processor Status
 fn plp(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
-  cpu.status = cpu.pull(bus);
+  cpu.status = cpu.pull(bus) & !(Break as u8);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -807,7 +807,7 @@ fn jmp(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, data: &DataSource) -> Instruction
 /// Jump to Subroutine
 fn jsr(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let return_addr = cpu.pc - 1;
-  let return_hi: u8 = (return_addr >> 8) as u8;
+  let return_hi: u8 = ((return_addr >> 8) & 0x00FF) as u8;
   cpu.push(bus, return_hi);
   let return_lo: u8 = (return_addr & 0x00FF) as u8;
   cpu.push(bus, return_lo);
