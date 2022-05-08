@@ -2,6 +2,7 @@ use crate::bus::Bus;
 use crate::bus_device::BusDevice;
 use crate::cart::Cart;
 use crate::cpu6502::Cpu;
+use crate::disassemble;
 use crate::mirror::Mirror;
 use crate::palette::{Color, Palette};
 use crate::ppu::Ppu;
@@ -63,18 +64,21 @@ impl Nes {
   }
 
   pub fn step(&mut self) {
-    loop {
-      self.clock();
-      if self.tick % 3 == 1 && self.cpu.cycles_left == 0 {
-        return;
-      }
-    }
+    self.step_with_callback(|_| {})
   }
 
   pub fn step_with_callback<F>(&mut self, mut callback: F)
   where
     F: FnMut(&mut Self),
   {
+    loop {
+      callback(self);
+
+      self.clock();
+      if self.tick % 3 == 1 && self.cpu.cycles_left == 0 {
+        return;
+      }
+    }
   }
 
   pub fn frame(&mut self) {
@@ -238,6 +242,52 @@ impl Nes {
     self.cpu = *cpu;
   }
 
+  pub fn trace(&self) -> String {
+    // Example:
+    // ```
+    // C000  4C F5 C5  JMP $C5F5                       A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7
+    // ^^^^  ^^-^^-^^  ^^^-^^^^^                         ^^   ^^   ^^   ^^    ^^ ^^^^^^^^^^^^^^^^^
+    // pc | inst data | disassembled inst              | a  | x  | y|status|stack_pointer| Discarded, for now
+    // ```
+
+    // Get a slice of the program that just contains enough data to disassemble
+    // the current instruction; to do this we read from the CPU bus at the
+    // current program counter for ~8 bytes or so which should be more than
+    // enough.
+    let mut program_slice: Vec<u8> = vec![];
+    for addr in self.cpu.pc..(self.cpu.pc + 8) {
+      // We use `safe_cpu_read` since it won't mutate anything; it skips over
+      // read operations that may mutate parts of our device. This isn't a
+      // "true" read as it will skip over things like reading PPU registers
+      // since those mutate state on the PPU.
+      program_slice.push(self.safe_cpu_read(addr));
+    }
+
+    let output = disassemble(&program_slice, self.cpu.pc, self.cpu.pc, Some(self));
+    let disassembled = &output[0];
+
+    let instruction_data = disassembled
+      .data
+      .iter()
+      .map(|byte| format!("{:02X}", byte))
+      .collect::<Vec<String>>()
+      .join(" ");
+
+    let cpu = &self.cpu;
+    format!(
+      "{:04X}  {:<8}  {} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+      self.cpu.pc,
+      instruction_data,
+      disassembled.instruction_name,
+      disassembled.params,
+      cpu.a,
+      cpu.x,
+      cpu.y,
+      cpu.status,
+      cpu.s
+    )
+  }
+
   // BEGIN ------ Hacky? Helper functions to avoid ugly manual dyn cast -------
 
   pub fn cpu_read(&mut self, addr: u16) -> u8 {
@@ -334,52 +384,6 @@ mod tests {
     palette::Color,
   };
 
-  fn get_debug_line(nes: &Nes) -> String {
-    // Example:
-    // ```
-    // C000  4C F5 C5  JMP $C5F5                       A:00 X:00 Y:00 P:24 SP:FD PPU:  0, 21 CYC:7
-    // ^^^^  ^^-^^-^^  ^^^-^^^^^                         ^^   ^^   ^^   ^^    ^^ ^^^^^^^^^^^^^^^^^
-    // pc | inst data | disassembled inst              | a  | x  | y|status|stack_pointer| Discarded, for now
-    // ```
-
-    // Get a slice of the program that just contains enough data to disassemble
-    // the current instruction; to do this we read from the CPU bus at the
-    // current program counter for ~8 bytes or so which should be more than
-    // enough.
-    let mut program_slice: Vec<u8> = vec![];
-    for addr in nes.cpu.pc..(nes.cpu.pc + 8) {
-      // We use `safe_cpu_read` since it won't mutate anything; it skips over
-      // read operations that may mutate parts of our device. This isn't a
-      // "true" read as it will skip over things like reading PPU registers
-      // since those mutate state on the PPU.
-      program_slice.push(nes.safe_cpu_read(addr));
-    }
-
-    let output = disassemble(&program_slice, nes.cpu.pc, nes.cpu.pc, Some(nes));
-    let disassembled = &output[0];
-
-    let instruction_data = disassembled
-      .data
-      .iter()
-      .map(|byte| format!("{:02X}", byte))
-      .collect::<Vec<String>>()
-      .join(" ");
-
-    let cpu = &nes.cpu;
-    format!(
-      "{:04X}  {:<8}  {} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
-      nes.cpu.pc,
-      instruction_data,
-      disassembled.instruction_name,
-      disassembled.params,
-      cpu.a,
-      cpu.x,
-      cpu.y,
-      cpu.status,
-      cpu.s
-    )
-  }
-
   fn make_test_nes() -> Nes {
     let mut cart_data = vec![
       0x4E,                                   // N
@@ -437,18 +441,13 @@ mod tests {
 
   fn debug_line_test(prog_data: &Vec<u8>, cpu: Cpu, expected_output: &'static str) {
     let mut nes = make_test_nes();
-
-    nes.cpu.pc = 0xCC59;
-
-    nes.cart.cpu_mapper.write(nes.cpu.pc, 0x00);
     nes.cpu = cpu;
 
-    // let prog_slice = vec![0xD0, 0x03];
     for i in 0..prog_data.len() {
       nes.cpu_write(nes.cpu.pc + (i as u16), prog_data[i]);
     }
 
-    assert_eq!(get_debug_line(&nes), expected_output);
+    assert_eq!(nes.trace(), expected_output);
   }
 
   #[test]
@@ -480,19 +479,52 @@ mod tests {
       "D082  A9 70     LDA #$70                        A:F5 X:00 Y:5F P:65 SP:FB",
     );
 
-    debug_line_test(
-      &vec![0x8D, 0x00, 0x03],
-      Cpu {
-        pc: 0xD084,
-        a: 0x70,
-        x: 0x00,
-        y: 0x5F,
-        status: 0x65,
-        s: 0xFB,
-        cycles_left: 0,
-      },
-      "D084  8D 00 03  STA $0300 = EF                  A:70 X:00 Y:5F P:65 SP:FB",
-    )
+    // debug_line_test(
+    //   &vec![0x8D, 0x00, 0x03],
+    //   Cpu {
+    //     pc: 0xD084,
+    //     a: 0x70,
+    //     x: 0x00,
+    //     y: 0x5F,
+    //     status: 0x65,
+    //     s: 0xFB,
+    //     cycles_left: 0,
+    //   },
+    //   "D084  8D 00 03  STA $0300 = EF                  A:70 X:00 Y:5F P:65 SP:FB",
+    // )
+  }
+
+  #[test]
+  fn test_run() {
+    let mut nes = make_test_nes();
+    nes.cpu_write(100, 0xa2);
+    nes.cpu_write(101, 0x01);
+    nes.cpu_write(102, 0xca);
+    nes.cpu_write(103, 0x88);
+    nes.cpu_write(104, 0x00);
+    nes.cpu = Cpu::new();
+    nes.cpu.pc = 100;
+    nes.cpu.a = 1;
+    nes.cpu.x = 2;
+    nes.cpu.y = 3;
+
+    assert_eq!(
+      "0064  A2 01     LDX #$01                        A:01 X:02 Y:03 P:24 SP:FD",
+      nes.trace()
+    );
+    nes.step();
+
+    assert_eq!(
+      "0066  CA        DEX                             A:01 X:01 Y:03 P:24 SP:FD",
+      nes.trace()
+    );
+    nes.step();
+
+    assert_eq!(
+      "0067  88        DEY                             A:01 X:00 Y:03 P:26 SP:FD",
+      nes.trace()
+    );
+    nes.step();
   }
 
   // We're jumping into testing things like the PPU without really validating

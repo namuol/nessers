@@ -40,6 +40,7 @@ pub struct Cpu {
 }
 
 pub const STACK_START: u16 = 0x0100;
+pub const STACK_INIT: u8 = 0xFD;
 pub const STACK_SIZE: u8 = 0xFF;
 
 /// An address that should contain a pointer to the start of our program
@@ -51,12 +52,12 @@ const NMI_POINTER: u16 = 0xFFFA;
 impl Cpu {
   pub fn new() -> Cpu {
     Cpu {
-      status: 0,
+      status: (0x00 as u8) | (StatusFlag::Unused as u8) | (StatusFlag::DisableInterrupts as u8),
       a: 0,
       x: 0,
       y: 0,
       pc: 0,
-      s: 0,
+      s: STACK_INIT,
       cycles_left: 0,
     }
   }
@@ -2161,9 +2162,14 @@ mod tests {
   fn get_status() {
     let mut cpu = Cpu::new();
 
-    for flag in &ALL_FLAGS {
-      assert_eq!(cpu.get_status(*flag), 0b0000);
-    }
+    assert_eq!(cpu.get_status(StatusFlag::Carry), 0b0000_0000);
+    assert_eq!(cpu.get_status(StatusFlag::Zero), 0b0000_0000);
+    assert_eq!(cpu.get_status(StatusFlag::DisableInterrupts), 0b0000_0100);
+    assert_eq!(cpu.get_status(StatusFlag::DecimalMode), 0b0000_0000);
+    assert_eq!(cpu.get_status(StatusFlag::Break), 0b0000_0000);
+    assert_eq!(cpu.get_status(StatusFlag::Unused), 0b0010_0000);
+    assert_eq!(cpu.get_status(StatusFlag::Overflow), 0b0000_0000);
+    assert_eq!(cpu.get_status(StatusFlag::Negative), 0b0000_0000);
 
     for flag in &ALL_FLAGS {
       let flag = *flag;
@@ -2173,7 +2179,7 @@ mod tests {
         if flag == other_flag {
           assert_eq!(cpu.get_status(other_flag), (flag as u8));
         } else {
-          assert_eq!(cpu.get_status(other_flag), 0b0000);
+          assert_eq!(cpu.get_status(other_flag), 0b0000_0000);
         }
       }
     }
@@ -2182,14 +2188,15 @@ mod tests {
   #[test]
   fn set_status() {
     let mut cpu = Cpu::new();
+    cpu.status = 0x00;
 
     for flag in &ALL_FLAGS {
       let flag = *flag;
-      assert_eq!(cpu.get_status(flag), 0b0000);
+      assert_eq!(cpu.get_status(flag), 0b0000_0000);
       cpu.set_status(flag, true);
       assert_eq!(cpu.get_status(flag), flag as u8);
       cpu.set_status(flag, false);
-      assert_eq!(cpu.get_status(flag), 0b0000);
+      assert_eq!(cpu.get_status(flag), 0b0000_0000);
     }
   }
 
