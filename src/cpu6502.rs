@@ -1206,7 +1206,7 @@ fn izy(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   let ptr = bus.read(cpu.pc) as u16 & 0x00FF;
   cpu.pc = cpu.pc.wrapping_add(1);
 
-  let addr_abs = bus.read16(ptr) + cpu.y as u16;
+  let addr_abs = bus.read16(ptr).wrapping_add(cpu.y as u16);
 
   // We only read this here so we can check if we crossed a page:
   let addr_hi = bus.read(ptr + 1) as u16 & 0x00FF;

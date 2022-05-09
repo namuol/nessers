@@ -82,7 +82,7 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
     .into();
 
     let needs_suffix: bool = match operation.instruction {
-      STA | STX | LDX | LDA | ORA | AND | EOR | ADC | CMP | SBC => true,
+      STA | STY | STX | LDY | LDX | LDA | ORA | AND | EOR | ADC | CMP | SBC | BIT | CPX | CPY | LSR | ASL | ROR | ROL | INC | DEC => true,
       _ => false,
     };
 
@@ -180,7 +180,8 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
         let param = nes.safe_cpu_read(pc);
         // Our pointer lives in the zeroth page, so we only need to read one byte
         let ptr = param as u16 & 0x00FF;
-        let addr_abs = nes.safe_cpu_read16(ptr) + nes.cpu.y as u16;
+        let addr = nes.safe_cpu_read16(ptr);
+        let addr_abs = addr.wrapping_add(nes.cpu.y as u16);
 
         let data_at = nes.safe_cpu_read(addr_abs);
 
@@ -189,7 +190,7 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
           "(${:02X}),Y = {:04X} @ {:04X} = {:02X}",
           param,
           // FIXME: What should this really be?
-          addr_abs,
+          addr,
           // FIXME: What should this really be?
           addr_abs,
           data_at
