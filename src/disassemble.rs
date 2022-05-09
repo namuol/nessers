@@ -82,7 +82,7 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
     .into();
 
     let needs_suffix: bool = match operation.instruction {
-      STA | STX | LDX | LDA => true,
+      STA | STX | LDX | LDA | ORA | AND | EOR | ADC | CMP | SBC => true,
       _ => false,
     };
 
