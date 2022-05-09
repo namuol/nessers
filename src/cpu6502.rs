@@ -400,7 +400,7 @@ fn ora(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 /// Bit Test
 fn bit(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let m = data.read(cpu, bus);
-  cpu.set_status(Zero, cpu.a == 0x00);
+  cpu.set_status(Zero, cpu.a & m == 0x00);
 
   // Bit 6 from memory value is copied to overflow flag (why?):
   cpu.set_status(Overflow, (0b_0100_0000 & m) != 0);
