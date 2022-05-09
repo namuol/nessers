@@ -52,6 +52,7 @@ struct NESDebugger {
   screen_img: Option<coffee::graphics::Image>,
   pattern_table_0_img: Option<coffee::graphics::Image>,
   pattern_table_1_img: Option<coffee::graphics::Image>,
+  debug_palette: u8,
   palettes_imgs: Option<[coffee::graphics::Image; 8]>,
   nes: Nes,
 }
@@ -120,6 +121,7 @@ impl Game for NESDebugger {
         pattern_table_0_img: None,
         pattern_table_1_img: None,
         palettes_imgs: None,
+        debug_palette: 0,
         nes,
       };
       debugger_ui.nes.reset();
@@ -148,6 +150,8 @@ impl Game for NESDebugger {
         self.nes.reset();
       } else if key == "F" {
         self.nes.frame();
+      } else if key == "P" {
+        self.debug_palette = (self.debug_palette + 1) % 8;
       } else if key == "L" {
         for _ in 0..114 {
           self.nes.step();
@@ -162,9 +166,9 @@ impl Game for NESDebugger {
 
     // Get the pattern table image:
     self.pattern_table_0_img =
-      Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(0, 0)).unwrap());
+      Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(0, self.debug_palette)).unwrap());
     self.pattern_table_1_img =
-      Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(1, 0)).unwrap());
+      Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(1, self.debug_palette)).unwrap());
 
     // lol
     let palettes = self.nes.get_palettes();

@@ -10,6 +10,7 @@ pub struct DisassembledOperation {
   pub params: String,
   pub addr: u16,
   pub data: Vec<u8>,
+  pub undocumented: bool,
 }
 
 pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperation> {
@@ -78,12 +79,17 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
       TXA => "TXA",
       TXS => "TXS",
       TYA => "TYA",
+
+      LAX => "LAX",
+      SAX => "SAX",
+      DCP => "DCP",
+      ISB => "ISB",
     }
     .into();
 
     let needs_suffix: bool = match operation.instruction {
       STA | STY | STX | LDY | LDX | LDA | ORA | AND | EOR | ADC | CMP | SBC | BIT | CPX | CPY
-      | LSR | ASL | ROR | ROL | INC | DEC => true,
+      | LSR | ASL | ROR | ROL | INC | DEC | NOP | LAX | SAX | DCP | ISB => true,
       _ => false,
     };
 
@@ -109,13 +115,25 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
         // Zero Page with X offset; read one byte:
         let param = nes.safe_cpu_read(pc);
         pc += 1;
-        format!("${:02X},X", param)
+        let addr_abs = (param.wrapping_add(nes.cpu.x)) as u16 & 0x00FF;
+        format!(
+          "${:02X},X @ {:02X} = {:02X}",
+          param,
+          addr_abs,
+          nes.safe_cpu_read(addr_abs)
+        )
       }
       ZPY => {
         // Zero Page with Y offset; read one byte:
         let param = nes.safe_cpu_read(pc);
         pc += 1;
-        format!("${:02X},Y", param)
+        let addr_abs = (param.wrapping_add(nes.cpu.y)) as u16 & 0x00FF;
+        format!(
+          "${:02X},Y @ {:02X} = {:02X}",
+          param,
+          addr_abs,
+          nes.safe_cpu_read(addr_abs)
+        )
       }
       ABS => {
         // Absolute; read two bytes:
@@ -137,7 +155,14 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
         pc += 1;
         let hi = nes.safe_cpu_read(pc) as u16;
         pc += 1;
-        format!("${:04X},X", (hi << 8) | lo)
+        let addr = (hi << 8) | lo;
+        let addr_abs = addr.wrapping_add(nes.cpu.x as u16);
+        format!(
+          "${:04X},X @ {:04X} = {:02X}",
+          addr,
+          addr_abs,
+          nes.safe_cpu_read(addr_abs)
+        )
       }
       ABY => {
         // Absolute, Y; read two bytes:
@@ -145,7 +170,14 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
         pc += 1;
         let hi = nes.safe_cpu_read(pc) as u16;
         pc += 1;
-        format!("${:04X},Y", (hi << 8) | lo)
+        let addr = (hi << 8) | lo;
+        let addr_abs = addr.wrapping_add(nes.cpu.y as u16);
+        format!(
+          "${:04X},Y @ {:04X} = {:02X}",
+          addr,
+          addr_abs,
+          nes.safe_cpu_read(addr_abs)
+        )
       }
       IND => {
         // Indirect, Y; read four bytes:
@@ -239,6 +271,7 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
       params,
       addr,
       data,
+      undocumented: operation.undocumented,
     });
   }
 

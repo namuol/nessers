@@ -178,6 +178,11 @@ impl Cpu {
         TXA => txa,
         TXS => txs,
         TYA => tya,
+
+        LAX => lax,
+        SAX => sax,
+        DCP => dcp,
+        ISB => isb,
       };
       let instruction_result = instruction(self, bus, &address_mode_result.data);
 
@@ -237,6 +242,7 @@ pub struct Operation {
   pub addressing_mode: AddressingMode,
   pub instruction: Instruction,
   pub cycles: u8,
+  pub undocumented: bool,
 }
 
 enum DataSourceKind {
@@ -357,6 +363,12 @@ pub enum Instruction {
   TXA,
   TXS,
   TYA,
+
+  // Undocumented:
+  LAX,
+  SAX,
+  DCP,
+  ISB,
 }
 use Instruction::*;
 
@@ -446,6 +458,17 @@ fn ldy(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
   }
 }
 
+fn lax(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, bus);
+  cpu.a = m;
+  cpu.x = m;
+  cpu.set_status(Zero, m == 0);
+  cpu.set_status(Negative, (0b_1000_0000 & m) != 0);
+  InstructionResult {
+    may_need_extra_cycle: true,
+  }
+}
+
 /// Store Accumulator
 fn sta(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   data.write(cpu, bus, cpu.a);
@@ -465,6 +488,14 @@ fn stx(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 /// Store Y
 fn sty(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   data.write(cpu, bus, cpu.y);
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Undocumented
+fn sax(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
+  data.write(cpu, bus, cpu.a & cpu.x);
   InstructionResult {
     may_need_extra_cycle: false,
   }
@@ -670,6 +701,17 @@ fn inc(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
   }
 }
 
+/// Undocumented: INC + SBC
+fn isb(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, bus) as u16;
+  let result = m.wrapping_add(1);
+  data.write(cpu, bus, (result & 0x00FF) as u8);
+
+  let a = cpu.a as u16 & 0x00FF;
+  let m = (!result) as u16 & 0x00FF;
+  adc_(cpu, a, m)
+}
+
 /// Increment X
 fn inx(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
   let result = (cpu.x as u16).wrapping_add(1);
@@ -721,6 +763,21 @@ fn dey(cpu: &mut Cpu, _bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instructio
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x0080) != 0);
   cpu.y = (result & 0x00FF) as u8;
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Undocumented; DEC + CMP
+fn dcp(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
+  let a = cpu.a as u16;
+  let m = data.read(cpu, bus) as u16;
+  let dec_result = m.wrapping_sub(1);
+  data.write(cpu, bus, (dec_result & 0x00FF) as u8);
+  cpu.set_status(Carry, a >= m);
+  let cmp_result = a.wrapping_sub(dec_result);
+  cpu.set_status(Zero, (cmp_result & 0x00FF) == 0);
+  cpu.set_status(Negative, (cmp_result & 0x0080) != 0);
   InstructionResult {
     may_need_extra_cycle: false,
   }
@@ -1058,7 +1115,7 @@ fn zp0(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
 fn zpx(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   // Read the first operand, constructing a 16-bit address within the zeroth
   // page:
-  let addr_abs = ((cpu.x + bus.read(cpu.pc)) as u16) & 0x00FF;
+  let addr_abs = ((cpu.x.wrapping_add(bus.read(cpu.pc))) as u16) & 0x00FF;
   cpu.pc = cpu.pc.wrapping_add(1);
   AddressingModeResult {
     data: DataSource {
@@ -1076,7 +1133,7 @@ fn zpx(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
 fn zpy(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   // Read the first operand, constructing a 16-bit address within the zeroth
   // page:
-  let addr_abs = ((cpu.y + bus.read(cpu.pc)) as u16) & 0x00FF;
+  let addr_abs = ((cpu.y.wrapping_add(bus.read(cpu.pc))) as u16) & 0x00FF;
   cpu.pc = cpu.pc.wrapping_add(1);
   AddressingModeResult {
     data: DataSource {
@@ -1138,7 +1195,7 @@ fn aby(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   cpu.pc = cpu.pc.wrapping_add(1);
   let addr_hi = bus.read(cpu.pc) as u16;
   cpu.pc = cpu.pc.wrapping_add(1);
-  let addr_abs = ((addr_hi << 8) | addr_lo) + cpu.y as u16;
+  let addr_abs = ((addr_hi << 8) | addr_lo).wrapping_add(cpu.y as u16);
 
   // If our hi byte is changed after we've added Y, then it has changed due to
   // overflow which means we are crossing a page. When we cross a page, we may
@@ -1266,6 +1323,7 @@ const ILLEGAL_OPERATION: Operation = Operation {
   addressing_mode: IMP,
   instruction: NOP,
   cycles: 1,
+  undocumented: true,
 };
 
 // Generated the following hashmap by running this JS on
@@ -1331,757 +1389,1228 @@ lazy_static! {
       instruction: ADC,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0x65 => Operation {
       instruction: ADC,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0x75 => Operation {
       instruction: ADC,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0x6D => Operation {
       instruction: ADC,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0x7D => Operation {
       instruction: ADC,
       addressing_mode: ABX,
       cycles: 4,
+      undocumented: false,
     },
     0x79 => Operation {
       instruction: ADC,
       addressing_mode: ABY,
       cycles: 4,
+      undocumented: false,
     },
     0x61 => Operation {
       instruction: ADC,
       addressing_mode: IZX,
       cycles: 6,
+      undocumented: false,
     },
     0x71 => Operation {
       instruction: ADC,
       addressing_mode: IZY,
       cycles: 5,
+      undocumented: false,
     },
     0x29 => Operation {
       instruction: AND,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0x25 => Operation {
       instruction: AND,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0x35 => Operation {
       instruction: AND,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0x2D => Operation {
       instruction: AND,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0x3D => Operation {
       instruction: AND,
       addressing_mode: ABX,
       cycles: 4,
+      undocumented: false,
     },
     0x39 => Operation {
       instruction: AND,
       addressing_mode: ABY,
       cycles: 4,
+      undocumented: false,
     },
     0x21 => Operation {
       instruction: AND,
       addressing_mode: IZX,
       cycles: 6,
+      undocumented: false,
     },
     0x31 => Operation {
       instruction: AND,
       addressing_mode: IZY,
       cycles: 5,
+      undocumented: false,
     },
     0x0A => Operation {
       instruction: ASL,
       addressing_mode: ACC,
       cycles: 2,
+      undocumented: false,
     },
     0x06 => Operation {
       instruction: ASL,
       addressing_mode: ZP0,
       cycles: 5,
+      undocumented: false,
     },
     0x16 => Operation {
       instruction: ASL,
       addressing_mode: ZPX,
       cycles: 6,
+      undocumented: false,
     },
     0x0E => Operation {
       instruction: ASL,
       addressing_mode: ABS,
       cycles: 6,
+      undocumented: false,
     },
     0x1E => Operation {
       instruction: ASL,
       addressing_mode: ABX,
       cycles: 7,
+      undocumented: false,
     },
     0x90 => Operation {
       instruction: BCC,
       addressing_mode: REL,
       cycles: 2,
+      undocumented: false,
     },
     0xB0 => Operation {
       instruction: BCS,
       addressing_mode: REL,
       cycles: 2,
+      undocumented: false,
     },
     0xF0 => Operation {
       instruction: BEQ,
       addressing_mode: REL,
       cycles: 2,
+      undocumented: false,
     },
     0x24 => Operation {
       instruction: BIT,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0x2C => Operation {
       instruction: BIT,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0x30 => Operation {
       instruction: BMI,
       addressing_mode: REL,
       cycles: 2,
+      undocumented: false,
     },
     0xD0 => Operation {
       instruction: BNE,
       addressing_mode: REL,
       cycles: 2,
+      undocumented: false,
     },
     0x10 => Operation {
       instruction: BPL,
       addressing_mode: REL,
       cycles: 2,
+      undocumented: false,
     },
     0x00 => Operation {
       instruction: BRK,
       addressing_mode: IMP,
       cycles: 7,
+      undocumented: false,
     },
     0x50 => Operation {
       instruction: BVC,
       addressing_mode: REL,
       cycles: 2,
+      undocumented: false,
     },
     0x70 => Operation {
       instruction: BVS,
       addressing_mode: REL,
       cycles: 2,
+      undocumented: false,
     },
     0x18 => Operation {
       instruction: CLC,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0xD8 => Operation {
       instruction: CLD,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x58 => Operation {
       instruction: CLI,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0xB8 => Operation {
       instruction: CLV,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0xC9 => Operation {
       instruction: CMP,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0xC5 => Operation {
       instruction: CMP,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0xD5 => Operation {
       instruction: CMP,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0xCD => Operation {
       instruction: CMP,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0xDD => Operation {
       instruction: CMP,
       addressing_mode: ABX,
       cycles: 4,
+      undocumented: false,
     },
     0xD9 => Operation {
       instruction: CMP,
       addressing_mode: ABY,
       cycles: 4,
+      undocumented: false,
     },
     0xC1 => Operation {
       instruction: CMP,
       addressing_mode: IZX,
       cycles: 6,
+      undocumented: false,
     },
     0xD1 => Operation {
       instruction: CMP,
       addressing_mode: IZY,
       cycles: 5,
+      undocumented: false,
     },
     0xE0 => Operation {
       instruction: CPX,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0xE4 => Operation {
       instruction: CPX,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0xEC => Operation {
       instruction: CPX,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0xC0 => Operation {
       instruction: CPY,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0xC4 => Operation {
       instruction: CPY,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0xCC => Operation {
       instruction: CPY,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0xC6 => Operation {
       instruction: DEC,
       addressing_mode: ZP0,
       cycles: 5,
+      undocumented: false,
     },
     0xD6 => Operation {
       instruction: DEC,
       addressing_mode: ZPX,
       cycles: 6,
+      undocumented: false,
     },
     0xCE => Operation {
       instruction: DEC,
       addressing_mode: ABS,
       cycles: 6,
+      undocumented: false,
     },
     0xDE => Operation {
       instruction: DEC,
       addressing_mode: ABX,
       cycles: 7,
+      undocumented: false,
     },
     0xCA => Operation {
       instruction: DEX,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x88 => Operation {
       instruction: DEY,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x49 => Operation {
       instruction: EOR,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0x45 => Operation {
       instruction: EOR,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0x55 => Operation {
       instruction: EOR,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0x4D => Operation {
       instruction: EOR,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0x5D => Operation {
       instruction: EOR,
       addressing_mode: ABX,
       cycles: 4,
+      undocumented: false,
     },
     0x59 => Operation {
       instruction: EOR,
       addressing_mode: ABY,
       cycles: 4,
+      undocumented: false,
     },
     0x41 => Operation {
       instruction: EOR,
       addressing_mode: IZX,
       cycles: 6,
+      undocumented: false,
     },
     0x51 => Operation {
       instruction: EOR,
       addressing_mode: IZY,
       cycles: 5,
+      undocumented: false,
     },
     0xE6 => Operation {
       instruction: INC,
       addressing_mode: ZP0,
       cycles: 5,
+      undocumented: false,
     },
     0xF6 => Operation {
       instruction: INC,
       addressing_mode: ZPX,
       cycles: 6,
+      undocumented: false,
     },
     0xEE => Operation {
       instruction: INC,
       addressing_mode: ABS,
       cycles: 6,
+      undocumented: false,
     },
     0xFE => Operation {
       instruction: INC,
       addressing_mode: ABX,
       cycles: 7,
+      undocumented: false,
     },
     0xE8 => Operation {
       instruction: INX,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0xC8 => Operation {
       instruction: INY,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x4C => Operation {
       instruction: JMP,
       addressing_mode: ABS,
       cycles: 3,
+      undocumented: false,
     },
     0x6C => Operation {
       instruction: JMP,
       addressing_mode: IND,
       cycles: 5,
+      undocumented: false,
     },
     0x20 => Operation {
       instruction: JSR,
       addressing_mode: ABS,
       cycles: 6,
+      undocumented: false,
     },
     0xA9 => Operation {
       instruction: LDA,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0xA5 => Operation {
       instruction: LDA,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0xB5 => Operation {
       instruction: LDA,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0xAD => Operation {
       instruction: LDA,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0xBD => Operation {
       instruction: LDA,
       addressing_mode: ABX,
       cycles: 4,
+      undocumented: false,
     },
     0xB9 => Operation {
       instruction: LDA,
       addressing_mode: ABY,
       cycles: 4,
+      undocumented: false,
     },
     0xA1 => Operation {
       instruction: LDA,
       addressing_mode: IZX,
       cycles: 6,
+      undocumented: false,
     },
     0xB1 => Operation {
       instruction: LDA,
       addressing_mode: IZY,
       cycles: 5,
+      undocumented: false,
     },
     0xA2 => Operation {
       instruction: LDX,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0xA6 => Operation {
       instruction: LDX,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0xB6 => Operation {
       instruction: LDX,
       addressing_mode: ZPY,
       cycles: 4,
+      undocumented: false,
     },
     0xAE => Operation {
       instruction: LDX,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0xBE => Operation {
       instruction: LDX,
       addressing_mode: ABY,
       cycles: 4,
+      undocumented: false,
     },
     0xA0 => Operation {
       instruction: LDY,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0xA4 => Operation {
       instruction: LDY,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0xB4 => Operation {
       instruction: LDY,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0xAC => Operation {
       instruction: LDY,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0xBC => Operation {
       instruction: LDY,
       addressing_mode: ABX,
       cycles: 4,
+      undocumented: false,
     },
     0x4A => Operation {
       instruction: LSR,
       addressing_mode: ACC,
       cycles: 2,
+      undocumented: false,
     },
     0x46 => Operation {
       instruction: LSR,
       addressing_mode: ZP0,
       cycles: 5,
+      undocumented: false,
     },
     0x56 => Operation {
       instruction: LSR,
       addressing_mode: ZPX,
       cycles: 6,
+      undocumented: false,
     },
     0x4E => Operation {
       instruction: LSR,
       addressing_mode: ABS,
       cycles: 6,
+      undocumented: false,
     },
     0x5E => Operation {
       instruction: LSR,
       addressing_mode: ABX,
       cycles: 7,
+      undocumented: false,
     },
     0xEA => Operation {
       instruction: NOP,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x09 => Operation {
       instruction: ORA,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0x05 => Operation {
       instruction: ORA,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0x15 => Operation {
       instruction: ORA,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0x0D => Operation {
       instruction: ORA,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0x1D => Operation {
       instruction: ORA,
       addressing_mode: ABX,
       cycles: 4,
+      undocumented: false,
     },
     0x19 => Operation {
       instruction: ORA,
       addressing_mode: ABY,
       cycles: 4,
+      undocumented: false,
     },
     0x01 => Operation {
       instruction: ORA,
       addressing_mode: IZX,
       cycles: 6,
+      undocumented: false,
     },
     0x11 => Operation {
       instruction: ORA,
       addressing_mode: IZY,
       cycles: 5,
+      undocumented: false,
     },
     0x48 => Operation {
       instruction: PHA,
       addressing_mode: IMP,
       cycles: 3,
+      undocumented: false,
     },
     0x08 => Operation {
       instruction: PHP,
       addressing_mode: IMP,
       cycles: 3,
+      undocumented: false,
     },
     0x68 => Operation {
       instruction: PLA,
       addressing_mode: IMP,
       cycles: 4,
+      undocumented: false,
     },
     0x28 => Operation {
       instruction: PLP,
       addressing_mode: IMP,
       cycles: 4,
+      undocumented: false,
     },
     0x2A => Operation {
       instruction: ROL,
       addressing_mode: ACC,
       cycles: 2,
+      undocumented: false,
     },
     0x26 => Operation {
       instruction: ROL,
       addressing_mode: ZP0,
       cycles: 5,
+      undocumented: false,
     },
     0x36 => Operation {
       instruction: ROL,
       addressing_mode: ZPX,
       cycles: 6,
+      undocumented: false,
     },
     0x2E => Operation {
       instruction: ROL,
       addressing_mode: ABS,
       cycles: 6,
+      undocumented: false,
     },
     0x3E => Operation {
       instruction: ROL,
       addressing_mode: ABX,
       cycles: 7,
+      undocumented: false,
     },
     0x6A => Operation {
       instruction: ROR,
       addressing_mode: ACC,
       cycles: 2,
+      undocumented: false,
     },
     0x66 => Operation {
       instruction: ROR,
       addressing_mode: ZP0,
       cycles: 5,
+      undocumented: false,
     },
     0x76 => Operation {
       instruction: ROR,
       addressing_mode: ZPX,
       cycles: 6,
+      undocumented: false,
     },
     0x6E => Operation {
       instruction: ROR,
       addressing_mode: ABS,
       cycles: 6,
+      undocumented: false,
     },
     0x7E => Operation {
       instruction: ROR,
       addressing_mode: ABX,
       cycles: 7,
+      undocumented: false,
     },
     0x40 => Operation {
       instruction: RTI,
       addressing_mode: IMP,
       cycles: 6,
+      undocumented: false,
     },
     0x60 => Operation {
       instruction: RTS,
       addressing_mode: IMP,
       cycles: 6,
+      undocumented: false,
     },
     0xE9 => Operation {
       instruction: SBC,
       addressing_mode: IMM,
       cycles: 2,
+      undocumented: false,
     },
     0xE5 => Operation {
       instruction: SBC,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0xF5 => Operation {
       instruction: SBC,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0xED => Operation {
       instruction: SBC,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0xFD => Operation {
       instruction: SBC,
       addressing_mode: ABX,
       cycles: 4,
+      undocumented: false,
     },
     0xF9 => Operation {
       instruction: SBC,
       addressing_mode: ABY,
       cycles: 4,
+      undocumented: false,
     },
     0xE1 => Operation {
       instruction: SBC,
       addressing_mode: IZX,
       cycles: 6,
+      undocumented: false,
     },
     0xF1 => Operation {
       instruction: SBC,
       addressing_mode: IZY,
       cycles: 5,
+      undocumented: false,
     },
     0x38 => Operation {
       instruction: SEC,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0xF8 => Operation {
       instruction: SED,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x78 => Operation {
       instruction: SEI,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x85 => Operation {
       instruction: STA,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0x95 => Operation {
       instruction: STA,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0x8D => Operation {
       instruction: STA,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0x9D => Operation {
       instruction: STA,
       addressing_mode: ABX,
       cycles: 5,
+      undocumented: false,
     },
     0x99 => Operation {
       instruction: STA,
       addressing_mode: ABY,
       cycles: 5,
+      undocumented: false,
     },
     0x81 => Operation {
       instruction: STA,
       addressing_mode: IZX,
       cycles: 6,
+      undocumented: false,
     },
     0x91 => Operation {
       instruction: STA,
       addressing_mode: IZY,
       cycles: 6,
+      undocumented: false,
     },
     0x86 => Operation {
       instruction: STX,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0x96 => Operation {
       instruction: STX,
       addressing_mode: ZPY,
       cycles: 4,
+      undocumented: false,
     },
     0x8E => Operation {
       instruction: STX,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0x84 => Operation {
       instruction: STY,
       addressing_mode: ZP0,
       cycles: 3,
+      undocumented: false,
     },
     0x94 => Operation {
       instruction: STY,
       addressing_mode: ZPX,
       cycles: 4,
+      undocumented: false,
     },
     0x8C => Operation {
       instruction: STY,
       addressing_mode: ABS,
       cycles: 4,
+      undocumented: false,
     },
     0xAA => Operation {
       instruction: TAX,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0xA8 => Operation {
       instruction: TAY,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0xBA => Operation {
       instruction: TSX,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x8A => Operation {
       instruction: TXA,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x9A => Operation {
       instruction: TXS,
       addressing_mode: IMP,
       cycles: 2,
+      undocumented: false,
     },
     0x98 => Operation {
       instruction: TYA,
       addressing_mode: IMP,
       cycles: 2,
-    }
+      undocumented: false,
+    },
+
+    // Undocumented opcodes:
+    0x1A => Operation {
+      instruction: NOP,
+      addressing_mode: IMP,
+      cycles: 2,
+      undocumented: true,
+    },
+    0x3A => Operation {
+      instruction: NOP,
+      addressing_mode: IMP,
+      cycles: 2,
+      undocumented: true,
+    },
+    0x5A => Operation {
+      instruction: NOP,
+      addressing_mode: IMP,
+      cycles: 2,
+      undocumented: true,
+    },
+    0x7A => Operation {
+      instruction: NOP,
+      addressing_mode: IMP,
+      cycles: 2,
+      undocumented: true,
+    },
+    0xDA => Operation {
+      instruction: NOP,
+      addressing_mode: IMP,
+      cycles: 2,
+      undocumented: true,
+    },
+    0xFA => Operation {
+      instruction: NOP,
+      addressing_mode: IMP,
+      cycles: 2,
+      undocumented: true,
+    },
+    0x80 => Operation {
+      instruction: NOP,
+      addressing_mode: IMM,
+      cycles: 2,
+      undocumented: true,
+    },
+    0x82 => Operation {
+      instruction: NOP,
+      addressing_mode: IMM,
+      cycles: 2,
+      undocumented: true,
+    },
+    0x89 => Operation {
+      instruction: NOP,
+      addressing_mode: IMM,
+      cycles: 2,
+      undocumented: true,
+    },
+    0xC2 => Operation {
+      instruction: NOP,
+      addressing_mode: IMM,
+      cycles: 2,
+      undocumented: true,
+    },
+    0xE2 => Operation {
+      instruction: NOP,
+      addressing_mode: IMM,
+      cycles: 2,
+      undocumented: true,
+    },
+    0x04 => Operation {
+      instruction: NOP,
+      addressing_mode: ZP0,
+      cycles: 3,
+      undocumented: true,
+    },
+    0x44 => Operation {
+      instruction: NOP,
+      addressing_mode: ZP0,
+      cycles: 3,
+      undocumented: true,
+    },
+    0x64 => Operation {
+      instruction: NOP,
+      addressing_mode: ZP0,
+      cycles: 3,
+      undocumented: true,
+    },
+    0x14 => Operation {
+      instruction: NOP,
+      addressing_mode: ZPX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x34 => Operation {
+      instruction: NOP,
+      addressing_mode: ZPX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x54 => Operation {
+      instruction: NOP,
+      addressing_mode: ZPX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x74 => Operation {
+      instruction: NOP,
+      addressing_mode: ZPX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0xD4 => Operation {
+      instruction: NOP,
+      addressing_mode: ZPX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0xF4 => Operation {
+      instruction: NOP,
+      addressing_mode: ZPX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x0C => Operation {
+      instruction: NOP,
+      addressing_mode: ABS,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x1C => Operation {
+      instruction: NOP,
+      addressing_mode: ABX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x3C => Operation {
+      instruction: NOP,
+      addressing_mode: ABX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x5C => Operation {
+      instruction: NOP,
+      addressing_mode: ABX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x7C => Operation {
+      instruction: NOP,
+      addressing_mode: ABX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0xDC => Operation {
+      instruction: NOP,
+      addressing_mode: ABX,
+      cycles: 4,
+      undocumented: true,
+    },
+    0xFC => Operation {
+      instruction: NOP,
+      addressing_mode: ABX,
+      cycles: 4,
+      undocumented: true,
+    },
+
+    0xA7 => Operation {
+      instruction: LAX,
+      addressing_mode: ZP0,
+      cycles: 3,
+      undocumented: true,
+    },
+    0xB7 => Operation {
+      instruction: LAX,
+      addressing_mode: ZPY,
+      cycles: 4,
+      undocumented: true,
+    },
+    0xAF => Operation {
+      instruction: LAX,
+      addressing_mode: ABS,
+      cycles:	4,
+      undocumented: true,
+    },
+    0xBF => Operation {
+      instruction: LAX,
+      addressing_mode: ABY,
+      cycles: 4,
+      undocumented: true,
+    },
+    0xA3 => Operation {
+      instruction: LAX,
+      addressing_mode: IZX,
+      cycles: 6,
+      undocumented: true,
+    },
+    0xB3 => Operation {
+      instruction: LAX,
+      addressing_mode: IZY,
+      cycles: 5,
+      undocumented: true,
+    },
+
+    0x87 => Operation{
+      instruction: SAX,
+      addressing_mode:ZP0,
+      cycles: 3,
+      undocumented: true,
+    },
+    0x97 => Operation{
+      instruction: SAX,
+      addressing_mode:ZPY,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x8F => Operation{
+      instruction: SAX,
+      addressing_mode:ABS,
+      cycles: 4,
+      undocumented: true,
+    },
+    0x83 => Operation{
+      instruction: SAX,
+      addressing_mode:IZX,
+      cycles: 6,
+      undocumented: true,
+    },
+
+    0xEB => Operation {
+      instruction: SBC,
+      addressing_mode: IMM,
+      cycles: 2,
+      undocumented: true,
+    },
+
+
+    0xC7 => Operation {
+      instruction: DCP,
+      addressing_mode: ZP0,
+      cycles: 5,
+      undocumented: true,
+    },
+    0xD7 => Operation {
+      instruction: DCP,
+      addressing_mode: ZPX,
+      cycles: 6,
+      undocumented: true,
+    },
+    0xCF => Operation {
+      instruction: DCP,
+      addressing_mode: ABS,
+      cycles: 6,
+      undocumented: true,
+    },
+    0xDF => Operation {
+      instruction: DCP,
+      addressing_mode: ABX,
+      cycles: 7,
+      undocumented: true,
+    },
+    0xDB => Operation {
+      instruction: DCP,
+      addressing_mode: ABY,
+      cycles: 7,
+      undocumented: true,
+    },
+    0xC3 => Operation {
+      instruction: DCP,
+      addressing_mode: IZX,
+      cycles: 8,
+      undocumented: true,
+    },
+    0xD3 => Operation {
+      instruction: DCP,
+      addressing_mode: IZY,
+      cycles: 8,
+      undocumented: true,
+    },
+
+    0xE7 => Operation {
+      instruction: ISB,
+      addressing_mode: ZP0,
+      cycles: 5,
+      undocumented: true,
+    },
+    0xF7 => Operation {
+      instruction: ISB,
+      addressing_mode: ZPX,
+      cycles: 6,
+      undocumented: true,
+    },
+    0xEF => Operation {
+      instruction: ISB,
+      addressing_mode: ABS,
+      cycles: 6,
+      undocumented: true,
+    },
+    0xFF => Operation {
+      instruction: ISB,
+      addressing_mode: ABX,
+      cycles: 7,
+      undocumented: true,
+    },
+    0xFB => Operation {
+      instruction: ISB,
+      addressing_mode: ABY,
+      cycles: 7,
+      undocumented: true,
+    },
+    0xE3 => Operation {
+      instruction: ISB,
+      addressing_mode: IZX,
+      cycles: 8,
+      undocumented: true,
+    },
+    0xF3 => Operation {
+      instruction: ISB,
+      addressing_mode: IZY,
+      cycles: 4,
+      undocumented: true,
+    },
   };
 }
 

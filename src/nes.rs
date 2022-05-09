@@ -266,9 +266,10 @@ impl Nes {
 
     let cpu = &self.cpu;
     format!(
-      "{:04X}  {:<8}  {} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+      "{:04X}  {:<8} {}{} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
       self.cpu.pc,
       instruction_data,
+      if disassembled.undocumented { "*" } else { " " },
       disassembled.instruction_name,
       disassembled.params,
       cpu.a,
