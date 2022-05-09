@@ -736,6 +736,8 @@ fn asl(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
   // We set the carry bit to the 7th bit from our data, since it was shifted
   // "out" of the result:
   cpu.set_status(Carry, m & 0x80 == 0x80);
+  cpu.set_status(Zero, (result & 0x00FF) == 0);
+  cpu.set_status(Negative, (result & 0x0080) != 0);
   data.write(cpu, bus, result);
 
   InstructionResult {
@@ -751,6 +753,8 @@ fn lsr(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
   // We set the carry bit to the 0th bit from our data, since it was shifted
   // "out" of the result:
   cpu.set_status(Carry, m & 0x01 == 0x01);
+  cpu.set_status(Zero, result == 0);
+  cpu.set_status(Negative, result & 0x80 != 0);
   data.write(cpu, bus, result);
 
   InstructionResult {
@@ -761,10 +765,12 @@ fn lsr(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 /// Rotate Left
 fn rol(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let m = data.read(cpu, bus);
-  let old_bit_7 = m >> 7;
-  let result = (m << 1) | old_bit_7;
+  let result = (m << 1) | cpu.get_status(Carry);
 
+  let old_bit_7 = m >> 7;
   cpu.set_status(Carry, old_bit_7 != 0);
+  cpu.set_status(Zero, result == 0);
+  cpu.set_status(Negative, result & 0x80 != 0);
   data.write(cpu, bus, result);
 
   InstructionResult {
@@ -775,10 +781,12 @@ fn rol(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
 /// Rotate Right
 fn ror(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let m = data.read(cpu, bus);
-  let old_bit_0 = m & 0x01;
-  let result = (m >> 1) | (old_bit_0 << 7);
+  let result = (m >> 1) | (cpu.get_status(Carry) << 7);
 
+  let old_bit_0 = m & 0x01;
   cpu.set_status(Carry, old_bit_0 != 0);
+  cpu.set_status(Zero, result == 0);
+  cpu.set_status(Negative, result & 0x80 != 0);
   data.write(cpu, bus, result);
 
   InstructionResult {
@@ -970,9 +978,7 @@ fn brk(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instruction
 
 /// Return from interrupt
 fn rti(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
-  cpu.status = cpu.pull(bus);
-  cpu.set_status(Break, false);
-  cpu.set_status(Unused, false);
+  cpu.status = cpu.pull(bus) | cpu.get_status(Break) | cpu.get_status(Unused);
 
   let pc_lo = cpu.pull(bus) as u16;
   let pc_hi = cpu.pull(bus) as u16;
@@ -1178,11 +1184,13 @@ fn ind(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
 /// (Indirect, X)
 fn izx(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>) -> AddressingModeResult {
   // Our pointer lives in the zeroth page, so we only need to read one byte
-  let ptr = bus.read(cpu.pc) as u16 & 0x00FF;
+  let ptr = bus.read(cpu.pc);
   cpu.pc = cpu.pc.wrapping_add(1);
 
   // We read X offset from this pointer
-  let addr_abs = bus.read16(ptr + (cpu.x as u16) & 0x00FF);
+  let lo = bus.read(ptr.wrapping_add(cpu.x) as u16 & 0x00FF) as u16;
+  let hi = bus.read(ptr.wrapping_add(cpu.x + 1) as u16 & 0x00FF) as u16;
+  let addr_abs = (hi << 8) | lo;
   AddressingModeResult {
     data: DataSource {
       kind: AbsoluteAddress,

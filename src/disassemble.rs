@@ -82,7 +82,7 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
     .into();
 
     let needs_suffix: bool = match operation.instruction {
-      STX|LDX|LDA => true,
+      STA | STX | LDX | LDA => true,
       _ => false,
     };
 
@@ -158,7 +158,22 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
         // Indexed Indirect; read one byte:
         let param = nes.safe_cpu_read(pc);
         pc += 1;
-        format!("(${:02X},X)", param)
+        if needs_suffix {
+          // We read X offset from this pointer
+          let lo = nes.safe_cpu_read(param.wrapping_add(nes.cpu.x) as u16 & 0x00FF) as u16;
+          let hi = nes.safe_cpu_read(param.wrapping_add(nes.cpu.x + 1) as u16 & 0x00FF) as u16;
+          let addr_abs = (hi << 8) | lo;
+          let data_at = nes.safe_cpu_read(addr_abs);
+          format!(
+            "(${:02X},X) @ {:02X} = {:04X} = {:02X}",
+            param,
+            param.wrapping_add(nes.cpu.x) & 0x00FF,
+            addr_abs,
+            data_at
+          )
+        } else {
+          format!("(${:02X},X)", param)
+        }
       }
       IZY => {
         // Indirect Indexed; read one byte:
