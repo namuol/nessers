@@ -578,11 +578,20 @@ mod tests {
     };
 
     nes.cpu.pc = 0xC000;
-
+    let mut line_num = 0;
     // First few traces:
     read_lines("src/test_fixtures/nestest.log")
       .unwrap()
       .for_each(|line| {
+        line_num += 1;
+        // After these lines we're dealing with APU functionality which isn't
+        // implemented yet:
+        if line_num > 8980 {
+          return;
+        }
+
+        // We strip the last part which contains PPU state and cycle count stuff
+        // which we're not yet ready to test:
         assert_eq!(nes.trace(), line.unwrap()[0..73]);
         nes.step();
       });
