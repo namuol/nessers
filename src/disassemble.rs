@@ -84,12 +84,18 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
       SAX => "SAX",
       DCP => "DCP",
       ISB => "ISB",
+      SLO => "SLO",
+      RLA => "RLA",
+      SRE => "SRE",
+      RRA => "RRA",
     }
     .into();
 
     let needs_suffix: bool = match operation.instruction {
       STA | STY | STX | LDY | LDX | LDA | ORA | AND | EOR | ADC | CMP | SBC | BIT | CPX | CPY
-      | LSR | ASL | ROR | ROL | INC | DEC | NOP | LAX | SAX | DCP | ISB => true,
+      | LSR | ASL | ROR | ROL | INC | DEC | NOP | LAX | SAX | DCP | ISB | SLO | RLA | SRE | RRA => {
+        true
+      }
       _ => false,
     };
 

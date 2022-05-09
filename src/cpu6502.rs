@@ -183,6 +183,10 @@ impl Cpu {
         SAX => sax,
         DCP => dcp,
         ISB => isb,
+        SLO => slo,
+        RLA => rla,
+        SRE => sre,
+        RRA => rra,
       };
       let instruction_result = instruction(self, bus, &address_mode_result.data);
 
@@ -369,6 +373,10 @@ pub enum Instruction {
   SAX,
   DCP,
   ISB,
+  SLO,
+  RLA,
+  SRE,
+  RRA,
 }
 use Instruction::*;
 
@@ -802,6 +810,26 @@ fn asl(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
   }
 }
 
+/// Undocumented: ASL + ORA
+fn slo(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, bus);
+  let result = m << 1; // equivalent to m * 2
+
+  // We set the carry bit to the 7th bit from our data, since it was shifted
+  // "out" of the result:
+  cpu.set_status(Carry, m & 0x80 == 0x80);
+
+  cpu.a = cpu.a | result;
+  cpu.set_status(Zero, cpu.a == 0x00);
+  cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
+
+  data.write(cpu, bus, result);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
 /// Logical Shift Right
 fn lsr(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let m = data.read(cpu, bus);
@@ -813,6 +841,25 @@ fn lsr(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
   cpu.set_status(Zero, result == 0);
   cpu.set_status(Negative, result & 0x80 != 0);
   data.write(cpu, bus, result);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
+/// Undocumented: LSR + EOR
+fn sre(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, bus);
+  let result = m >> 1; // equivalent to m / 2
+
+  // We set the carry bit to the 0th bit from our data, since it was shifted
+  // "out" of the result:
+  cpu.set_status(Carry, m & 0x01 == 0x01);
+  data.write(cpu, bus, result);
+
+  cpu.a = cpu.a ^ result;
+  cpu.set_status(Zero, cpu.a == 0x00);
+  cpu.set_status(Negative, cpu.a & 0b_1000_0000 != 0);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -835,6 +882,24 @@ fn rol(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
   }
 }
 
+/// Undocumented: ROL + AND
+fn rla(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, bus);
+  let result = (m << 1) | cpu.get_status(Carry);
+
+  let old_bit_7 = m >> 7;
+  cpu.set_status(Carry, old_bit_7 != 0);
+  cpu.set_status(Zero, result == 0);
+  cpu.set_status(Negative, result & 0x80 != 0);
+
+  cpu.a = cpu.a & result;
+  data.write(cpu, bus, result);
+
+  InstructionResult {
+    may_need_extra_cycle: false,
+  }
+}
+
 /// Rotate Right
 fn ror(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
   let m = data.read(cpu, bus);
@@ -849,6 +914,16 @@ fn ror(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
   InstructionResult {
     may_need_extra_cycle: false,
   }
+}
+
+/// Undocumented: ROR + ADC
+fn rra(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
+  let m = data.read(cpu, bus);
+  let result = (m >> 1) | (cpu.get_status(Carry) << 7);
+  let old_bit_0 = m & 0x01;
+  cpu.set_status(Carry, old_bit_0 != 0);
+  data.write(cpu, bus, result);
+  adc_(cpu, cpu.a as u16 & 0x00FF, result as u16 & 0x00FF)
 }
 
 /// Jumps & Calls
@@ -2611,6 +2686,180 @@ lazy_static! {
       cycles: 4,
       undocumented: true,
     },
+
+    0x07 => Operation {
+      instruction: SLO,
+      addressing_mode: ZP0,
+      cycles: 5,
+      undocumented: true,
+    },
+    0x17 => Operation {
+      instruction: SLO,
+      addressing_mode: ZPX,
+      cycles: 6,
+      undocumented: true,
+    },
+    0x0F => Operation {
+      instruction: SLO,
+      addressing_mode: ABS,
+      cycles: 6,
+      undocumented: true,
+    },
+    0x1F => Operation {
+      instruction: SLO,
+      addressing_mode: ABX,
+      cycles: 7,
+      undocumented: true,
+    },
+    0x1B => Operation {
+      instruction: SLO,
+      addressing_mode: ABY,
+      cycles: 7,
+      undocumented: true,
+    },
+    0x03 => Operation {
+      instruction: SLO,
+      addressing_mode: IZX,
+      cycles: 8,
+      undocumented: true,
+    },
+    0x13 => Operation {
+      instruction: SLO,
+      addressing_mode: IZY,
+      cycles: 8,
+      undocumented: true,
+    },
+
+    0x27 => Operation {
+      instruction: RLA,
+      addressing_mode: ZP0,
+      cycles: 5,
+      undocumented: true,
+    },
+    0x37 => Operation {
+      instruction: RLA,
+      addressing_mode: ZPX,
+      cycles: 6,
+      undocumented: true,
+    },
+    0x2F => Operation {
+      instruction: RLA,
+      addressing_mode: ABS,
+      cycles: 6,
+      undocumented: true,
+    },
+    0x3F => Operation {
+      instruction: RLA,
+      addressing_mode: ABX,
+      cycles: 7,
+      undocumented: true,
+    },
+    0x3B => Operation {
+      instruction: RLA,
+      addressing_mode: ABY,
+      cycles: 7,
+      undocumented: true,
+    },
+    0x23 => Operation {
+      instruction: RLA,
+      addressing_mode: IZX,
+      cycles: 8,
+      undocumented: true,
+    },
+    0x33 => Operation {
+      instruction: RLA,
+      addressing_mode: IZY,
+      cycles: 8,
+      undocumented: true,
+    },
+
+    0x47 => Operation {
+      instruction: SRE,
+      addressing_mode: ZP0,
+      cycles: 5,
+      undocumented: true,
+    },
+    0x57 => Operation {
+      instruction: SRE,
+      addressing_mode: ZPX,
+      cycles: 6,
+      undocumented: true,
+    },
+    0x4F => Operation {
+      instruction: SRE,
+      addressing_mode: ABS,
+      cycles: 6,
+      undocumented: true,
+    },
+    0x5F => Operation {
+      instruction: SRE,
+      addressing_mode: ABX,
+      cycles: 7,
+      undocumented: true,
+    },
+    0x5B => Operation {
+      instruction: SRE,
+      addressing_mode: ABY,
+      cycles: 7,
+      undocumented: true,
+    },
+    0x43 => Operation {
+      instruction: SRE,
+      addressing_mode: IZX,
+      cycles: 8,
+      undocumented: true,
+    },
+    0x53 => Operation {
+      instruction: SRE,
+      addressing_mode: IZY,
+      cycles: 8,
+      undocumented: true,
+    },
+
+
+    0x67 => Operation {
+      instruction: RRA,
+      addressing_mode: ZP0,
+      cycles: 5,
+      undocumented: true,
+    },
+    0x77 => Operation {
+      instruction: RRA,
+      addressing_mode: ZPX,
+      cycles: 6,
+      undocumented: true,
+    },
+    0x6F => Operation {
+      instruction: RRA,
+      addressing_mode: ABS,
+      cycles: 6,
+      undocumented: true,
+    },
+    0x7F => Operation {
+      instruction: RRA,
+      addressing_mode: ABX,
+      cycles: 7,
+      undocumented: true,
+    },
+    0x7B => Operation {
+      instruction: RRA,
+      addressing_mode: ABY,
+      cycles: 7,
+      undocumented: true,
+    },
+    0x63 => Operation {
+      instruction: RRA,
+      addressing_mode: IZX,
+      cycles: 8,
+      undocumented: true,
+    },
+    0x73 => Operation {
+      instruction: RRA,
+      addressing_mode: IZY,
+      cycles: 8,
+      undocumented: true,
+    },
+
   };
 }
 
