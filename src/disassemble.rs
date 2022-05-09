@@ -153,7 +153,17 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
         pc += 1;
         let hi = nes.safe_cpu_read(pc) as u16;
         pc += 1;
-        format!("(${:04X})", (hi << 8) | lo)
+        let ptr = (hi << 8) | lo;
+        // The 6502 has a hardware bug where if you happen to have a pointer address
+        // in memory that spans across pages (remember, pointers are 2 bytes, and
+        // therefore it is possible for this to happen), it will not actually read the
+        // hi byte of the address properly
+        let addr_abs = if lo == 0x00FF {
+          ((nes.safe_cpu_read(ptr & 0xFF00) as u16) << 8) | nes.safe_cpu_read(ptr) as u16
+        } else {
+          nes.safe_cpu_read16(ptr)
+        };
+        format!("(${:04X}) = {:04X}", ptr, addr_abs)
       }
       IZX => {
         // Indexed Indirect; read one byte:
