@@ -81,6 +81,11 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
     }
     .into();
 
+    let needs_suffix: bool = match operation.instruction {
+      STX|LDX|LDA => true,
+      _ => false,
+    };
+
     let params: String = match &operation.addressing_mode {
       IMP => {
         // Implied; nothing to read:
@@ -117,7 +122,13 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
         pc += 1;
         let hi = nes.safe_cpu_read(pc) as u16;
         pc += 1;
-        format!("${:04X}", (hi << 8) | lo)
+        let addr = (hi << 8) | lo;
+        if needs_suffix {
+          let data = nes.safe_cpu_read(addr);
+          format!("${:04X} = {:02X}", addr, data)
+        } else {
+          format!("${:04X}", addr)
+        }
       }
       ABX => {
         // Absolute, X; read two bytes:

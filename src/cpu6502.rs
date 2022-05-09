@@ -575,7 +575,9 @@ fn pla(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instruction
 
 /// Pull Processor Status
 fn plp(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
-  cpu.status = cpu.pull(bus) & !(Break as u8) & !(Unused as u8);
+  cpu.status = cpu.pull(bus);
+  cpu.set_status(Unused, true);
+  cpu.set_status(Break, false);
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -583,17 +585,13 @@ fn plp(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instruction
 }
 
 // Arithmetic
-
-/// Add with Carry
-fn adc(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
-  let a = cpu.a as u16;
-  let m = data.read(cpu, bus) as u16;
-  let result = a + m + (cpu.get_status(Carry) as u16);
+fn adc_(cpu: &mut Cpu, a: u16, m: u16) -> InstructionResult {
+  let result = a + m + if cpu.get_status(Carry) != 0 { 1 } else { 0 };
   {
     let overflow: u16 = (a ^ result) & !(a ^ m) & 0x0080;
     cpu.set_status(Overflow, overflow != 0);
   }
-  cpu.set_status(Carry, result > 0xFF);
+  cpu.set_status(Carry, result & 0xFF00 != 0);
   cpu.set_status(Zero, (result & 0x00FF) == 0);
   cpu.set_status(Negative, (result & 0x80) != 0);
   cpu.a = (result & 0x00FF) as u8;
@@ -601,24 +599,18 @@ fn adc(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionR
     may_need_extra_cycle: true,
   }
 }
+/// Add with Carry
+fn adc(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
+  let a = cpu.a as u16 & 0x00FF;
+  let m = data.read(cpu, bus) as u16 & 0x00FF;
+  adc_(cpu, a, m)
+}
 
 /// Subtract with Carry
 fn sbc(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, data: &DataSource) -> InstructionResult {
-  let a = cpu.a as u16;
-  // This implementation is identical to ADC, except we invert the lower 8 bits
-  let m = (data.read(cpu, bus) as u16) ^ 0x00FF;
-  let result = a + m + (cpu.get_status(Carry) as u16) + 1;
-  {
-    let overflow: u16 = (a ^ result) & !(a ^ m) & 0x0080;
-    cpu.set_status(Overflow, overflow != 0);
-  }
-  cpu.set_status(Carry, result > 0xFF);
-  cpu.set_status(Zero, (result & 0x00FF) == 0);
-  cpu.set_status(Negative, (result & 0x80) != 0);
-  cpu.a = (result & 0x00FF) as u8;
-  InstructionResult {
-    may_need_extra_cycle: true,
-  }
+  let a = cpu.a as u16 & 0x00FF;
+  let m = (!data.read(cpu, bus)) as u16 & 0x00FF;
+  adc_(cpu, a, m)
 }
 
 /// Compare Accumulator
@@ -979,13 +971,15 @@ fn brk(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> Instruction
 /// Return from interrupt
 fn rti(cpu: &mut Cpu, bus: &mut dyn Bus<Cpu>, _data: &DataSource) -> InstructionResult {
   cpu.status = cpu.pull(bus);
+  cpu.set_status(Break, false);
+  cpu.set_status(Unused, false);
 
-  let pc_hi = cpu.pull(bus) as u16;
   let pc_lo = cpu.pull(bus) as u16;
+  let pc_hi = cpu.pull(bus) as u16;
   cpu.pc = (pc_hi << 8) | pc_lo;
 
-  let irq_addr = bus.read16(IRQ_POINTER);
-  cpu.pc = irq_addr;
+  // let irq_addr = bus.read16(IRQ_POINTER);
+  // cpu.pc = irq_addr;
 
   InstructionResult {
     may_need_extra_cycle: false,
@@ -2423,6 +2417,7 @@ mod tests {
       // inputs:
       a: u8,
       m: u8,
+
       // expected outputs:
       r: u8,
       c: bool, // carry bit
