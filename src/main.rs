@@ -6,6 +6,7 @@ use coffee::input::{self, keyboard, Input};
 use coffee::load::Task;
 use coffee::ui::{Align, Column, Element, Image, Justify, Renderer, Row, Text, UserInterface};
 use coffee::{Game, Result, Timer};
+use cpu6502::STACK_START;
 use docopt::Docopt;
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -21,6 +22,7 @@ pub mod nes;
 pub mod palette;
 pub mod ppu;
 pub mod ram;
+pub mod trace;
 
 use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
 use crate::disassemble::disassemble;
@@ -165,10 +167,20 @@ impl Game for NESDebugger {
     self.screen_img = Some(from_screen(window.gpu(), &self.nes.ppu.screen).unwrap());
 
     // Get the pattern table image:
-    self.pattern_table_0_img =
-      Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(0, self.debug_palette)).unwrap());
-    self.pattern_table_1_img =
-      Some(from_pattern_table(window.gpu(), &self.nes.render_pattern_table(1, self.debug_palette)).unwrap());
+    self.pattern_table_0_img = Some(
+      from_pattern_table(
+        window.gpu(),
+        &self.nes.render_pattern_table(0, self.debug_palette),
+      )
+      .unwrap(),
+    );
+    self.pattern_table_1_img = Some(
+      from_pattern_table(
+        window.gpu(),
+        &self.nes.render_pattern_table(1, self.debug_palette),
+      )
+      .unwrap(),
+    );
 
     // lol
     let palettes = self.nes.get_palettes();
@@ -209,8 +221,8 @@ impl UserInterface for NESDebugger {
   }
   fn layout(&mut self, window: &Window) -> Element<Message> {
     let mut stack_str = String::new();
-    for page in 0..(STACK_SIZE / 16) {
-      let addr = 0 as u16 + (page as u16) * 16;
+    for page in 0..=(STACK_SIZE / 16) {
+      let addr = STACK_START as u16 + (page as u16) * 16;
       stack_str.push_str(&format!("{:04X}: ", addr));
       for offset in 0..16 {
         stack_str.push_str(&format!("{:02X} ", self.nes.cpu_read(addr + offset)));
@@ -218,27 +230,27 @@ impl UserInterface for NESDebugger {
       stack_str.push_str("\n");
     }
 
-    let first_pc_page = (self.nes.cpu.pc / 16) as u16;
-    let mut ram_str = String::new();
-    for page in 0..(STACK_SIZE / 16) {
-      let addr = ((first_pc_page + page as u16) as u16).wrapping_mul(16);
-      ram_str.push_str(&format!("{:04X}: ", addr));
-      for offset in 0..16 {
-        let addr = addr + offset;
-        if addr == self.nes.cpu.pc {
-          ram_str.push_str(&format!("{:02X}<", self.nes.cpu_read(addr)));
-        } else {
-          ram_str.push_str(&format!("{:02X} ", self.nes.cpu_read(addr)));
-        }
-      }
-      ram_str.push_str("\n");
-    }
+    // let first_pc_page = (self.nes.cpu.pc / 16) as u16;
+    // let mut ram_str = String::new();
+    // for page in 0..(STACK_SIZE / 16) {
+    //   let addr = ((first_pc_page + page as u16) as u16).wrapping_mul(16);
+    //   ram_str.push_str(&format!("{:04X}: ", addr));
+    //   for offset in 0..16 {
+    //     let addr = addr + offset;
+    //     if addr == self.nes.cpu.pc {
+    //       ram_str.push_str(&format!("{:02X}<", self.nes.cpu_read(addr)));
+    //     } else {
+    //       ram_str.push_str(&format!("{:02X} ", self.nes.cpu_read(addr)));
+    //     }
+    //   }
+    //   ram_str.push_str("\n");
+    // }
 
     let left_pane = Column::new()
       .push(Text::new("---").size(30))
-      .push(Text::new(&stack_str).size(30))
-      .push(Text::new("---").size(30))
-      .push(Text::new(&ram_str).size(30));
+      .push(Text::new(&stack_str).size(30));
+    // .push(Text::new("---").size(30))
+    // .push(Text::new(&ram_str).size(30));
 
     let disassembled = disassemble(&self.nes, self.nes.cpu.pc, 128);
     let mut disassembled_output: Vec<String> = vec![];
@@ -265,7 +277,7 @@ impl UserInterface for NESDebugger {
     let disassembled_output = &disassembled_output[start..end];
 
     let center_pane = Column::new()
-      .width(400)
+      .width(600)
       .push(
         Row::new()
           .push(Text::new("Status:").size(30))
@@ -316,25 +328,29 @@ impl UserInterface for NESDebugger {
       .push(Text::new(&format!(" A: {:02X} ({})", self.nes.cpu.a, self.nes.cpu.a)).size(30))
       .push(Text::new(&format!(" X: {:02X} ({})", self.nes.cpu.x, self.nes.cpu.x)).size(30))
       .push(Text::new(&format!(" Y: {:02X} ({})", self.nes.cpu.y, self.nes.cpu.y)).size(30))
+      .push(Text::new(&format!("SP: {:02X} ({})", self.nes.cpu.s, self.nes.cpu.s)).size(30))
       .push(Text::new("---".into()).size(30))
       .push(Text::new(&disassembled_output.join("\n")).size(30));
 
     let mut ui = Row::new()
-      .padding(16)
-      .spacing(16)
+      .padding(8)
+      .spacing(8)
       .width(window.width() as u32)
       .height(window.height() as u32)
-      .push(left_pane)
-      .push(center_pane);
+      .push(left_pane);
+    // .push(center_pane);
 
-    ui = match &self.screen_img {
-      Some(img) => ui
-        // .push(Text::new("Screen:").size(30))
-        .push(Image::new(&img)),
-      None => ui,
-    };
+    // ui = match &self.screen_img {
+    //   Some(img) => ui
+    //     // .push(Text::new("Screen:").size(30))
+    //     .push(Image::new(&img).width(786).height(723)),
+    //   None => ui,
+    // };
 
-    let mut tables = Column::new().height(window.height() as u32).spacing(8);
+    let mut tables = Column::new()
+      .width(256)
+      .height(window.height() as u32)
+      .spacing(8);
     tables = match &self.pattern_table_0_img {
       Some(img) => tables.push(Image::new(&img).width(256).height(256)),
       None => tables,
@@ -358,6 +374,7 @@ impl UserInterface for NESDebugger {
 
     tables = tables.push(palettes);
     ui = ui.push(tables);
+    ui = ui.push(center_pane);
 
     ui.into()
   }

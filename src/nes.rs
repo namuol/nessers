@@ -7,6 +7,7 @@ use crate::mirror::Mirror;
 use crate::palette::{Color, Palette};
 use crate::ppu::Ppu;
 use crate::ram::Ram;
+use crate::trace::Trace;
 
 pub struct Nes {
   pub cpu: Cpu,

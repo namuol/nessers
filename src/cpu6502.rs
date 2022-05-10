@@ -289,6 +289,8 @@ pub struct AddressingModeResult {
 /// or an absolute address from which the data can be retrieved/written to
 /// (`addr_abs`)
 type AddressingModeImplementation = fn(&mut Cpu, &mut dyn Bus<Cpu>) -> AddressingModeResult;
+
+#[derive(Clone, Copy)]
 pub enum AddressingMode {
   IMP,
   IMM,
@@ -310,6 +312,9 @@ struct InstructionResult {
   may_need_extra_cycle: bool,
 }
 type InstructionImplementation = fn(&mut Cpu, &mut dyn Bus<Cpu>, &DataSource) -> InstructionResult;
+
+
+#[derive(Clone, Copy)]
 pub enum Instruction {
   ADC,
   AND,

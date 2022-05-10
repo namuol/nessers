@@ -238,9 +238,10 @@ impl Ppu {
   pub fn ppu_write(&mut self, addr: u16, data: u8) {
     if addr >= 0x0000 && addr <= 0x1FFF {
       // 0x0000 -> 0x1FFF = pattern memory
+      self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize] = data;
+      return;
     } else if addr >= 0x2000 && addr <= 0x3EFF {
       // 0x2000 -> 0x3EFF = nametable memory
-      self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize] = data;
       return;
     } else if addr >= 0x3F00 && addr <= 0x3FFF {
       // 0x3F00 -> 0x3FFF = palette memory
@@ -335,12 +336,12 @@ impl BusDevice for Ppu {
     }
 
     match addr % 8 {
-      // 0x0000 => {
-      //   self.control = data;
-      // } // Control
-      // 0x0001 => {
-      //   self.mask = data;
-      // } // Mask
+      0x0000 => {
+        self.control = data;
+      }
+      0x0001 => {
+        self.mask = data;
+      }
       // 0x0002 => {} // Status
       // 0x0003 => {} // OAM Address
       // 0x0004 => {} // OAM Data

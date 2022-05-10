@@ -38,6 +38,10 @@ impl Palette {
       index += 3;
     }
 
+    for i in 0..32 {
+      palette.map[i] = i as u8;
+    }
+
     Ok(palette)
   }
 }
