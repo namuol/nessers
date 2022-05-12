@@ -148,15 +148,36 @@ impl Game for NESDebugger {
       let key = format!("{:?}", keypress);
       if key == "Space" {
         self.nes.step();
+      } else if key == "T" {
+        self.nes.step_with_callback(|nes| {
+          println!("{}", nes.trace())
+        })
       } else if key == "R" {
         self.nes.reset();
       } else if key == "F" {
         self.nes.frame();
+      } else if key == "D" {
+        println!(
+          "{}",
+          self
+            .nes
+            .addresses_hit
+            .iter()
+            .map(|addr| format!("{:04X}", addr))
+            .collect::<Vec<String>>()
+            .join("\n")
+        );
       } else if key == "B" {
         self.nes.break_at(&vec![
-          0x801B,
-
-          
+          0x9032,
+          0x802B,
+          //
+          0x812E,
+          // Here's where we write to 0x07A7:
+          // 0x90DC, // This one only writes to 0x07A7 once.
+          0x8039,
+          0x8119,
+          0x8131, // This one seems important.
           // THIS IS WHERE PPU PALETTE WRITE HAPPENS:
           // 0x8EBB,
           /*0x8EF3, 0x8EBB, 0x8082, 0x8eac,*/
@@ -291,7 +312,8 @@ impl UserInterface for NESDebugger {
   }
   fn layout(&mut self, window: &Window) -> Element<Message> {
     let mut stack_str = String::new();
-    for page in 0..=(STACK_SIZE / 16) * 4 {
+    let start: u16 = 0;
+    for page in start..=(start + (STACK_SIZE as u16 / 16) * 4) {
       let addr = (STACK_START * 0) as u16 + (page as u16) * 16;
       stack_str.push_str(&format!("{:04X}: ", addr));
       for offset in 0..16 {

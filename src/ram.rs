@@ -1,5 +1,6 @@
 use crate::bus_device::{BusDevice, BusDeviceRange};
 
+#[derive(Clone)]
 pub struct Ram {
   pub start: u16,
   buf: Vec<u8>,

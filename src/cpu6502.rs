@@ -214,7 +214,7 @@ impl Cpu {
     if self.get_status(StatusFlag::DisableInterrupts) != 0x00 {
       let pc_hi: u8 = (self.pc >> 8) as u8;
       self.push(bus, pc_hi);
-      let pc_lo: u8 = (self.pc << 8) as u8;
+      let pc_lo: u8 = (self.pc & 0x00FF) as u8;
       self.push(bus, pc_lo);
       self.set_status(Break, false);
       self.set_status(Unused, true);
@@ -229,14 +229,14 @@ impl Cpu {
   pub fn sig_nmi(&mut self, bus: &mut dyn Bus<Cpu>) {
     let pc_hi: u8 = (self.pc >> 8) as u8;
     self.push(bus, pc_hi);
-    let pc_lo: u8 = (self.pc << 8) as u8;
+    let pc_lo: u8 = (self.pc & 0x00FF) as u8;
     self.push(bus, pc_lo);
     self.set_status(Break, false);
     self.set_status(Unused, true);
     self.set_status(DisableInterrupts, true);
     self.push(bus, self.status);
     let irq_addr = bus.read16(NMI_POINTER);
-    println!("NMI IRQ {:04X}", irq_addr);
+    println!("NMI IRQ {:04X} PC = {:04X} lo = {:02X} hi = {:02X}", irq_addr, self.pc, pc_lo, pc_hi);
     self.pc = irq_addr;
 
     self.cycles_left = 8;

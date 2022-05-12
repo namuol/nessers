@@ -11,6 +11,7 @@ pub struct Color {
 }
 
 /// NES color palette
+#[derive(Clone)]
 pub struct Palette {
   // The SRGB colors that the NES is capable of displaying.
   pub colors: [Color; 64],

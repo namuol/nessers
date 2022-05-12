@@ -3,6 +3,7 @@ use crate::bus_device::{BusDevice, BusDeviceRange};
 pub trait RangedBusDevice: BusDevice + BusDeviceRange {}
 impl<T> RangedBusDevice for T where T: BusDevice + BusDeviceRange {}
 
+#[derive(Clone)]
 pub struct Mirror {
   pub start: u16,
   total_size: usize,

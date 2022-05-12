@@ -10,6 +10,7 @@ const HEADER_START: [u8; 4] = [
   0x1A, // EOF
 ];
 
+#[derive(Clone)]
 #[allow(dead_code)]
 pub struct Cart {
   mirroring: Mirroring,
@@ -19,19 +20,19 @@ pub struct Cart {
   pub ppu_mapper: CartPpuMapper,
   pub mapper_code: u8,
 }
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Mirroring {
   Horizontal,
   Vertical,
 }
-
+#[derive(Clone)]
 pub struct CartCpuMapper {
   num_prg_banks: usize,
   prg: Vec<u8>,
   mapper_code: u8,
   mapper: Mapper,
 }
-
+#[derive(Clone)]
 pub struct CartPpuMapper {
   num_chr_banks: usize,
   chr: Vec<u8>,

@@ -6,6 +6,7 @@ use crate::palette::Palette;
 pub const SCREEN_W: usize = 256;
 pub const SCREEN_H: usize = 240;
 
+#[derive(Clone)]
 pub struct Ppu {
   /// The current row number on the screen
   scanline: isize,

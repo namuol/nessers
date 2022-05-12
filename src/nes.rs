@@ -9,7 +9,9 @@ use crate::palette::{Color, Palette};
 use crate::ppu::Ppu;
 use crate::ram::Ram;
 use crate::trace::{trace, Trace};
+use std::collections::HashSet;
 
+#[derive(Clone)]
 pub struct Nes {
   pub cpu: Cpu,
   pub ppu: Ppu,
@@ -18,6 +20,7 @@ pub struct Nes {
   ram_mirror: Mirror,
   ppu_registers_mirror: Mirror,
   cart: Cart,
+  pub addresses_hit: HashSet<u16>,
 }
 
 impl Nes {
@@ -42,12 +45,14 @@ impl Nes {
       ram_mirror,
       ram,
       ppu_registers_mirror,
+      addresses_hit: HashSet::new(),
     })
   }
 
   pub fn clock(&mut self) {
     self.ppu.clock();
     if self.tick % 3 == 0 {
+      self.addresses_hit.insert(self.cpu.pc);
       // Is there a shorthand way to run a method on a field by cloning it and
       // replacing its value with the cloned object?
       let cpu = &mut self.cpu.clone();
@@ -94,6 +99,13 @@ impl Nes {
 
   pub fn break_at(&mut self, addr: &Vec<u16>) {
     loop {
+      // HACK: If something brings us back to $8000, then break before
+      let mut next_nes = self.clone();
+      next_nes.step();
+      if next_nes.cpu.pc == 0x8000 {
+        return;
+      }
+
       self.step();
       if addr.contains(&self.cpu.pc) {
         println!("Broke at {:04X}", self.cpu.pc);
@@ -322,6 +334,9 @@ impl Bus<Cpu> for Nes {
   }
 
   fn write(&mut self, addr: u16, data: u8) {
+    if addr == 0x07A7 {
+      println!("$07A7 = {:02X} PC = {:04X}", data, self.cpu.pc);
+    }
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.cpu_mapper.write(addr, data))
       .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data))
@@ -502,6 +517,7 @@ mod tests {
       ram_mirror,
       ram,
       ppu_registers_mirror,
+      addresses_hit: HashSet::new(),
     }
   }
 
