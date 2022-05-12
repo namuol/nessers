@@ -4,9 +4,9 @@ extern crate maplit;
 use coffee::graphics::{Color, Frame, Gpu, Window, WindowSettings};
 use coffee::input::{self, keyboard, Input};
 use coffee::load::Task;
-use coffee::ui::{Align, Column, Element, Image, Justify, Renderer, Row, Text, UserInterface};
+use coffee::ui::{Column, Element, Image, Renderer, Row, Text, UserInterface};
 use coffee::{Game, Result, Timer};
-use cpu6502::STACK_START;
+use cpu6502::{NMI_POINTER, STACK_START};
 use docopt::Docopt;
 use serde::Deserialize;
 use std::collections::HashSet;
@@ -24,7 +24,7 @@ pub mod ppu;
 pub mod ram;
 pub mod trace;
 
-use crate::cpu6502::{StatusFlag, PC_INIT_ADDR, STACK_SIZE};
+use crate::cpu6502::{StatusFlag, STACK_SIZE};
 use crate::disassemble::disassemble;
 use crate::nes::Nes;
 use crate::ppu::{SCREEN_H, SCREEN_W};
@@ -152,6 +152,76 @@ impl Game for NESDebugger {
         self.nes.reset();
       } else if key == "F" {
         self.nes.frame();
+      } else if key == "B" {
+        self.nes.break_at(&vec![
+          0x801B,
+
+          
+          // THIS IS WHERE PPU PALETTE WRITE HAPPENS:
+          // 0x8EBB,
+          /*0x8EF3, 0x8EBB, 0x8082, 0x8eac,*/
+          // This should be JSR 0x8EED; it _should_ push return addr 0x8eac - 1
+          // onto the stack as [ab 8e] in position 01f9 = 80
+          //
+          // This never seems to get hit.
+          // 0x8ea9,
+          // This seems to be what leads to the above; it DOES get hit:
+          // 0x8eec
+          // We seem to get stuck here.
+          // 0x80AE,
+
+          // This is the first instruction location we hit when we're "on the
+          // path" to writing to PPU palette (addr 0x8EBB)
+          // 0x8E92,
+          // Here's a BNE instruction that leads to 0x8E92; this is where things
+          // clearly diverge.
+          // 0x8EE4,
+
+          // Here's just a few instructions above 0x8ee4
+          // 0x8ee0,
+
+          // Okay, so here's what I know:
+          //
+          // The BNE that occurs on 0x8EE4 looks at a value loaded from location
+          // 0x0301 in memory.
+          //
+          // This value is consistently zero in my memory dump view.
+          //
+          // I need to track where this is written to, store those addresses as
+          // breakpoints, and see if these are actually getting hit.
+          //
+          // If not, well, more goose-chasing I guess...
+          //
+          // Okay, here's where I _think_ we're writing to 0x301:
+          // 0x8629
+          // ...and of course we're never hitting this.
+          //
+          // Looks like we jump into this from JSR here:
+          // 0x85ad,
+          // ...and of course we're never hitting this either.
+
+          // New approach; traced everything up until 0x85AD was hit in FCEUX in
+          // a log file; here's the first jump above it:
+          // 0x8E16,
+          // ^^^ $8E16: 6C 06 00 JMP ($0006) = $859BA:85 X:07 Y:04 S:F9 P:NvUbdIzc
+
+          // So this reads an address at $0006 and jumps to that address, which happens to be 0x859B
+          //
+          // I need to find where 0x859B is written to this address...
+          // ...which is here:
+          // 0x8E0F,
+          // This appears to be a subroutine for dynamically loading an address
+          // and jumping to it.
+          //
+          // The jump into this subroutine happens here; it happens only once
+          // _before_ the fateful jump, at least in fceux:
+          // 0x856A,
+          // ...but this never gets hit in our emulator.
+          //
+          // JSR before that:
+          // 0x8234,
+          // 0x90E6,
+        ]);
       } else if key == "P" {
         self.debug_palette = (self.debug_palette + 1) % 8;
       } else if key == "L" {
@@ -221,8 +291,8 @@ impl UserInterface for NESDebugger {
   }
   fn layout(&mut self, window: &Window) -> Element<Message> {
     let mut stack_str = String::new();
-    for page in 0..=(STACK_SIZE / 16) {
-      let addr = STACK_START as u16 + (page as u16) * 16;
+    for page in 0..=(STACK_SIZE / 16) * 4 {
+      let addr = (STACK_START * 0) as u16 + (page as u16) * 16;
       stack_str.push_str(&format!("{:04X}: ", addr));
       for offset in 0..16 {
         stack_str.push_str(&format!("{:02X} ", self.nes.cpu_read(addr + offset)));
@@ -246,9 +316,7 @@ impl UserInterface for NESDebugger {
     //   ram_str.push_str("\n");
     // }
 
-    let left_pane = Column::new()
-      .push(Text::new("---").size(30))
-      .push(Text::new(&stack_str).size(30));
+    let left_pane = Column::new().push(Text::new(&stack_str).size(20));
     // .push(Text::new("---").size(30))
     // .push(Text::new(&ram_str).size(30));
 
@@ -324,12 +392,43 @@ impl UserInterface for NESDebugger {
             },
           )),
       )
-      .push(Text::new(&format!("PC: {:04X} -", self.nes.cpu.pc)).size(30))
-      .push(Text::new(&format!(" A: {:02X} ({})", self.nes.cpu.a, self.nes.cpu.a)).size(30))
-      .push(Text::new(&format!(" X: {:02X} ({})", self.nes.cpu.x, self.nes.cpu.x)).size(30))
-      .push(Text::new(&format!(" Y: {:02X} ({})", self.nes.cpu.y, self.nes.cpu.y)).size(30))
-      .push(Text::new(&format!("SP: {:02X} ({})", self.nes.cpu.s, self.nes.cpu.s)).size(30))
-      .push(Text::new("---".into()).size(30))
+      .push(
+        Text::new(&format!(
+          "PC: {:04X}        PPU: {:02X} {:08b}",
+          self.nes.cpu.pc, self.nes.ppu.status, self.nes.ppu.status
+        ))
+        .size(30),
+      )
+      .push(
+        Text::new(&format!(
+          " A: {:02X} ({:03})   CTRL: {:02X} {:08b}",
+          self.nes.cpu.a, self.nes.cpu.a, self.nes.ppu.control, self.nes.ppu.control
+        ))
+        .size(30),
+      )
+      .push(
+        Text::new(&format!(
+          " X: {:02X} ({:03})   MASK: {:02X} {:08b}",
+          self.nes.cpu.x, self.nes.cpu.x, self.nes.ppu.mask, self.nes.ppu.mask
+        ))
+        .size(30),
+      )
+      .push(
+        Text::new(&format!(
+          " Y: {:02X} ({:03})    NMI: {:04X}",
+          self.nes.cpu.y,
+          self.nes.cpu.y,
+          self.nes.safe_cpu_read16(NMI_POINTER)
+        ))
+        .size(30),
+      )
+      .push(
+        Text::new(&format!(
+          "SP: {:02X} ({:03})   ADDR: {:04X}",
+          self.nes.cpu.s, self.nes.cpu.s, self.nes.ppu.address
+        ))
+        .size(30),
+      )
       .push(Text::new(&disassembled_output.join("\n")).size(30));
 
     let mut ui = Row::new()
@@ -396,7 +495,6 @@ impl Input for CPUDebuggerInput {
         key_code,
         state: input::ButtonState::Pressed,
       }) => {
-        println!("{:?}", key_code);
         self.keypresses.insert(key_code);
       }
       _ => {}

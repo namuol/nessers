@@ -18,6 +18,9 @@ serde = "1.0.137"
 image = "0.21.3"
 rand = "0.7.3"
 
+[dev-dependencies]
+pretty_assertions = "1.2.1"
+
 [patch.crates-io]
 coffee = {git = "https://github.com/namuol/coffee", rev = "cfc18d8cae128b6f22087872ab37ba152c9dc55e"}
 

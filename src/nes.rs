@@ -2,12 +2,13 @@ use crate::bus::Bus;
 use crate::bus_device::BusDevice;
 use crate::cart::Cart;
 use crate::cpu6502::Cpu;
-use crate::disassemble;
+use crate::cpu6502::StatusFlag::*;
+use crate::disassemble::DisassembledOperation;
 use crate::mirror::Mirror;
 use crate::palette::{Color, Palette};
 use crate::ppu::Ppu;
 use crate::ram::Ram;
-use crate::trace::Trace;
+use crate::trace::{trace, Trace};
 
 pub struct Nes {
   pub cpu: Cpu,
@@ -86,6 +87,16 @@ impl Nes {
     loop {
       self.clock();
       if self.ppu.frame_complete == true {
+        return;
+      }
+    }
+  }
+
+  pub fn break_at(&mut self, addr: &Vec<u16>) {
+    loop {
+      self.step();
+      if addr.contains(&self.cpu.pc) {
+        println!("Broke at {:04X}", self.cpu.pc);
         return;
       }
     }
@@ -251,34 +262,8 @@ impl Nes {
     // pc | inst data | disassembled inst              | a  | x  | y|status|stack_pointer| Discarded, for now
     // ```
 
-    // Get a slice of the program that just contains enough data to disassemble
-    // the current instruction; to do this we read from the CPU bus at the
-    // current program counter for ~8 bytes or so which should be more than
-    // enough.
-    let output = disassemble(self, self.cpu.pc, 8);
-    let disassembled = &output[0];
-
-    let instruction_data = disassembled
-      .data
-      .iter()
-      .map(|byte| format!("{:02X}", byte))
-      .collect::<Vec<String>>()
-      .join(" ");
-
-    let cpu = &self.cpu;
-    format!(
-      "{:04X}  {:<8} {}{} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
-      self.cpu.pc,
-      instruction_data,
-      if disassembled.undocumented { "*" } else { " " },
-      disassembled.instruction_name,
-      disassembled.params,
-      cpu.a,
-      cpu.x,
-      cpu.y,
-      cpu.status,
-      cpu.s
-    )
+    let trace = trace(self, self.cpu.pc);
+    print_trace(trace)
   }
 
   // BEGIN ------ Hacky? Helper functions to avoid ugly manual dyn cast -------
@@ -370,21 +355,90 @@ impl Bus<Ppu> for Nes {
   }
 }
 
+pub fn print_trace(trace: Trace) -> String {
+  let cpu = trace.cpu;
+  let disassembled: DisassembledOperation = trace.into();
+
+  let instruction_data = disassembled
+    .data
+    .iter()
+    .map(|byte| format!("{:02X}", byte))
+    .collect::<Vec<String>>()
+    .join(" ");
+
+  format!(
+    "{:04X}  {:<8} {}{} {:<26}  A:{:02X} X:{:02X} Y:{:02X} P:{:02X} SP:{:02X}",
+    disassembled.addr,
+    instruction_data,
+    if disassembled.undocumented { "*" } else { " " },
+    disassembled.instruction_name,
+    disassembled.params,
+    cpu.a,
+    cpu.x,
+    cpu.y,
+    cpu.status,
+    cpu.s
+  )
+}
+
+pub fn print_trace2(trace: Trace) -> String {
+  let cpu = trace.cpu;
+  let disassembled: DisassembledOperation = trace.into();
+
+  let instruction_data = disassembled
+    .data
+    .iter()
+    .map(|byte| format!("{:02X}", byte))
+    .collect::<Vec<String>>()
+    .join(" ");
+
+  #[rustfmt::skip]
+  let status_string = format!("{}{}{}{}{}{}{}{}", 
+    if cpu.get_status(Negative) != 0 { "N" } else { "n"},
+    if cpu.get_status(Overflow) != 0 { "V" } else { "v"},
+    if cpu.get_status(Unused) != 0 { "U" } else { "u"},
+    if cpu.get_status(Break) != 0 { "B" } else { "b"},
+    if cpu.get_status(DecimalMode) != 0 { "D" } else { "d"},
+    if cpu.get_status(DisableInterrupts) != 0 { "I" } else { "i"},
+    if cpu.get_status(Zero) != 0 { "Z" } else { "z"},
+    if cpu.get_status(Carry) != 0 { "C" } else { "c"},
+  );
+
+  format!(
+    "{:04X}  {:<8} {}{} {:<26}  A:{:02X} {:08b} X:{:02X} Y:{:02X} SP:{:02X} {}",
+    disassembled.addr,
+    instruction_data,
+    if disassembled.undocumented { "*" } else { " " },
+    disassembled.instruction_name,
+    disassembled.params,
+    cpu.a,
+    cpu.a,
+    cpu.x,
+    cpu.y,
+    cpu.s,
+    status_string,
+  )
+}
+
 #[cfg(test)]
 mod tests {
+  use crate::{
+    cart::{FLAG_HAS_RAM, FLAG_MIRRORING},
+    palette::Color,
+    ppu::StatusRegister,
+    trace::trace,
+  };
+  use pretty_assertions::assert_eq;
   use std::{
     fs::File,
     io::{self, BufRead},
     path::Path,
   };
 
+  use crate::cpu6502::AddressingMode::*;
+  use crate::cpu6502::Instruction::*;
+
   use super::*;
-  use crate::{
-    cart::{CartPpuMapper, FLAG_HAS_RAM, FLAG_MIRRORING},
-    disassemble,
-    mapper::MAPPERS,
-    palette::Color,
-  };
 
   // The output is wrapped in a Result to allow matching on errors
   // Returns an Iterator to the Reader of the lines of the file.
@@ -596,5 +650,484 @@ mod tests {
         assert_eq!(nes.trace(), line.unwrap()[0..73]);
         nes.step();
       });
+  }
+
+  // Meh. Wild goose chase.
+  //
+  // #[test]
+  // fn smbtest() {
+  //   #[derive(Debug, PartialEq)]
+  //   struct SMBTest {
+  //     line_num: usize,
+  //     trace: String,
+  //   }
+  //   let mut nes = match Nes::new(
+  //     // You'll need to provide your own backup of Super Mario Bros here:
+  //     "src/test_fixtures/smb.nes",
+  //     "src/test_fixtures/ntscpalette.pal",
+  //   ) {
+  //     Ok(n) => n,
+  //     Err(msg) => panic!("{}", msg),
+  //   };
+
+  //   // Shouldn't this happen automatically?
+  //   nes.cpu.pc = 0x8000;
+
+  //   let addrs_to_skip: Vec<u16> = vec![
+  //     0x800D, 0x800A, 0x8012, 0x800F, 0x801B, 0x801F, 0x8020, 0x801D, 0x8018,
+  //   ];
+  //   let line_nums_to_skip: Vec<usize> = vec![
+  //     // 25569,
+  //     // 25570,
+  //     // 25571,
+  //     // 25572,
+  //   ];
+
+  //   // First few traces:
+  //   let lines: Vec<String> = read_lines("src/test_fixtures/smb.log")
+  //     .unwrap()
+  //     .map(|line| line.unwrap())
+  //     .collect();
+
+  //   let mut line_num = 0;
+
+  //   while line_num < lines.len() {
+  //     while addrs_to_skip.contains(&nes.cpu.pc) {
+  //       nes.step();
+  //     }
+
+  //     let mut fceux_trace;
+  //     loop {
+  //       line_num += 1;
+  //       match from_fceux_trace(&lines[line_num - 1]) {
+  //         Ok(trace) => {
+  //           fceux_trace = trace;
+  //           if !addrs_to_skip.contains(&fceux_trace.cpu.pc) {
+  //             break;
+  //           }
+  //         }
+  //         Err(_) => {
+  //           panic!("Failed on line {}", line_num);
+  //         }
+  //       }
+  //     }
+
+  //     let trace = trace(&nes, nes.cpu.pc);
+  //     nes.step();
+
+  //     if line_nums_to_skip.contains(&line_num) {
+  //       continue;
+  //     }
+
+  //     assert_eq!(
+  //       SMBTest {
+  //         trace: print_trace2(trace),
+  //         line_num
+  //       },
+  //       SMBTest {
+  //         trace: print_trace2(fceux_trace),
+  //         line_num
+  //       },
+  //     );
+  //   }
+  // }
+
+  fn from_fceux_trace(string: &str) -> Result<Trace, std::num::ParseIntError> {
+    // $8000: 78       SEIA:00 X:00 Y:00 S:FD P:nvubdIzc
+    // $8001: D8       CLDA:00 X:00 Y:00 S:FD P:nvubdIzc
+    // $8002: A9 10    LDA #$10A:00 X:00 Y:00 S:FD P:nvubdIzc
+    // $8004: 8D 00 20 STA $2000 = #$00A:10 X:00 Y:00 S:FD P:nvubdIzc
+    // $8007: A2 FF    LDX #$FFA:10 X:00 Y:00 S:FD P:nvubdIzc
+    // $8009: 9A       TXSA:10 X:FF Y:00 S:FD P:NvubdIzc
+    let mut cpu = Cpu::new();
+
+    // $8000: 78       SEIA:00 X:00 Y:00 S:FD P:nvubdIzc
+    //  ^^^^
+    cpu.pc = u16::from_str_radix(&string[1..5], 16)?;
+
+    let mut data: Vec<u8> = vec![];
+    // $8004: 8D 00 20 STA $2000 = #$00A:10 X:00 Y:00 S:FD P:nvubdIzc
+    //        ^^ ^^ ^^
+    for i in 0..3 {
+      let read = u8::from_str_radix(&string[(7 + i * 3)..(7 + i * 3 + 2)], 16);
+      match read {
+        Ok(byte) => data.push(byte),
+        Err(_) => {
+          break;
+        }
+      }
+    }
+
+    // $8000: 78       SEIA:00 X:00 Y:00 S:FD P:nvubdIzc
+    //                 ^^^
+    let instruction = match &string[16..19] {
+      "ADC" => ADC,
+      "AND" => AND,
+      "ASL" => ASL,
+      "BCC" => BCC,
+      "BCS" => BCS,
+      "BEQ" => BEQ,
+      "BIT" => BIT,
+      "BMI" => BMI,
+      "BNE" => BNE,
+      "BPL" => BPL,
+      "BRK" => BRK,
+      "BVC" => BVC,
+      "BVS" => BVS,
+      "CLC" => CLC,
+      "CLD" => CLD,
+      "CLI" => CLI,
+      "CLV" => CLV,
+      "CMP" => CMP,
+      "CPX" => CPX,
+      "CPY" => CPY,
+      "DEC" => DEC,
+      "DEX" => DEX,
+      "DEY" => DEY,
+      "EOR" => EOR,
+      "INC" => INC,
+      "INX" => INX,
+      "INY" => INY,
+      "JMP" => JMP,
+      "JSR" => JSR,
+      "LDA" => LDA,
+      "LDX" => LDX,
+      "LDY" => LDY,
+      "LSR" => LSR,
+      "NOP" => NOP,
+      "ORA" => ORA,
+      "PHA" => PHA,
+      "PHP" => PHP,
+      "PLA" => PLA,
+      "PLP" => PLP,
+      "ROL" => ROL,
+      "ROR" => ROR,
+      "RTI" => RTI,
+      "RTS" => RTS,
+      "SBC" => SBC,
+      "SEC" => SEC,
+      "SED" => SED,
+      "SEI" => SEI,
+      "STA" => STA,
+      "STX" => STX,
+      "STY" => STY,
+      "TAX" => TAX,
+      "TAY" => TAY,
+      "TSX" => TSX,
+      "TXA" => TXA,
+      "TXS" => TXS,
+      "TYA" => TYA,
+      "LAX" => LAX,
+      "SAX" => SAX,
+      "DCP" => DCP,
+      "ISB" => ISB,
+      "SLO" => SLO,
+      "RLA" => RLA,
+      "SRE" => SRE,
+      "RRA" => RRA,
+      _ => NOP,
+    };
+
+    let mut param: u8 = 0x00;
+    let mut addr: u16 = 0x0000;
+    let mut addr_abs: u16 = 0x0000;
+
+    let flags_start: usize;
+    // If our next char is "A" then we are using implied addressing mode; the
+    // "A" is the A register label.
+    //
+    // $8000: 78       SEIA:00 X:00 Y:00 S:FD P:nvubdIzc
+    //                    ^
+    let addressing_mode = if &string[19..20] == "A" {
+      flags_start = 19;
+      IMP
+    } else {
+      // $8002: A9 10    LDA #$10A:00 X:00 Y:00 S:FD P:nvubdIzc
+      //                     ^
+      match &string[20..21] {
+        "#" => {
+          // $8002: A9 10    LDA #$10A:00 X:00 Y:00 S:FD P:nvubdIzc
+          //                       ^^
+          param = u8::from_str_radix(&string[22..24], 16)?;
+          // $8002: A9 10    LDA #$10A:00 X:00 Y:00 S:FD P:nvubdIzc
+          //                         ^
+          flags_start = 24;
+          IMM
+        }
+        "$" => {
+          if instruction == JSR {
+            // $802B: 20 CC 90 JSR $90CCA:FF X:05 Y:FE S:FF P:NvubdIzC
+            //                          ^
+            flags_start = 25;
+            ABS
+          } else if data.len() == 3 {
+            // $8004: 8D 00 20 STA $2000 = #$00A:10 X:00 Y:00 S:FD P:nvubdIzc
+            //                      ^^^^
+            addr = u16::from_str_radix(&string[21..25], 16)?;
+            // $8018: BD D7 07 LDA $07D7,X @ $07DC = #$FFA:90 X:05 Y:FE S:FF P:nvubdIzc
+            //                          ^
+            if &string[25..26] == "," {
+              // $8018: BD D7 07 LDA $07D7,X @ $07DC = #$FFA:90 X:05 Y:FE S:FF P:nvubdIzc
+              //                                ^^^^
+              addr_abs = u16::from_str_radix(&string[31..35], 16)?;
+              // $8018: BD D7 07 LDA $07D7,X @ $07DC = #$FFA:90 X:05 Y:FE S:FF P:nvubdIzc
+              //                                           ^
+              flags_start = 42;
+              match &string[26..27] {
+                "X" => ABX,
+                "Y" => ABY,
+                _ => panic!("Unexpected 'ADDR,{}'", &string[26..27]),
+              }
+            } else {
+              // $8004: 8D 00 20 STA $2000 = #$00A:10 X:00 Y:00 S:FD P:nvubdIzc
+              //                                 ^
+              flags_start = 32;
+              ABS
+            }
+          } else {
+            // $800D: 10 FB    BPL $800AA:10 X:FF Y:00 S:FF P:nvubdIzc
+            //                      ^^^^
+            addr_abs = u16::from_str_radix(&string[21..25], 16)?;
+            // $800D: 10 FB    BPL $800AA:10 X:FF Y:00 S:FF P:nvubdIzc
+            //                          ^
+            flags_start = 25;
+            REL
+          }
+        }
+        _ => {
+          flags_start = 9999;
+          ZPX
+        }
+      }
+    };
+
+    // ___________A:00 X:00 Y:00 S:FD P:nvubdIzc
+    // flags_start| ^^
+    cpu.a = u8::from_str_radix(&string[(flags_start + 2)..(flags_start + 4)], 16)?;
+
+    // ___________A:00 X:00 Y:00 S:FD P:nvubdIzc
+    // flags_start|      ^^
+    cpu.x = u8::from_str_radix(&string[(flags_start + 7)..(flags_start + 9)], 16)?;
+
+    // ___________A:00 X:00 Y:00 S:FD P:nvubdIzc
+    // flags_start|           ^^
+    cpu.y = u8::from_str_radix(&string[(flags_start + 12)..(flags_start + 14)], 16)?;
+
+    // ___________A:00 X:00 Y:00 S:FD P:nvubdIzc
+    // flags_start|                ^^
+    cpu.s = u8::from_str_radix(&string[(flags_start + 17)..(flags_start + 19)], 16)?;
+
+    // ___________A:00 X:00 Y:00 S:FD P:nvubdIzc
+    // flags_start|                     ^
+    let s = flags_start + 22;
+    cpu.set_status(Negative, &string[(s + 0)..(s + 1)] == "N");
+    cpu.set_status(Overflow, &string[(s + 1)..(s + 2)] == "V");
+    // Looks like FCEUX always keeps this un-set but our CPU emulation follows a
+    // different spec I guess?
+    //
+    // cpu.set_status(Unused, &string[(s + 2)..(s + 3)] == "U");
+    cpu.set_status(Break, &string[(s + 3)..(s + 4)] == "B");
+    cpu.set_status(DecimalMode, &string[(s + 4)..(s + 5)] == "D");
+    cpu.set_status(DisableInterrupts, &string[(s + 5)..(s + 6)] == "I");
+    cpu.set_status(Zero, &string[(s + 6)..(s + 7)] == "Z");
+    cpu.set_status(Carry, &string[(s + 7)..(s + 8)] == "C");
+
+    Ok(Trace {
+      cpu,
+      instruction,
+      addressing_mode,
+      // TODO
+      undocumented: false,
+      data,
+      param,
+      param_expanded: 0x00,
+      addr,
+      addr_abs,
+      data_at: 0x00,
+    })
+  }
+
+  #[test]
+  fn test_from_fceux_trace() {
+    {
+      let mut cpu = Cpu::new();
+      cpu.pc = 0x8000;
+      assert_eq!(
+        from_fceux_trace("$8000: 78       SEIA:00 X:00 Y:00 S:FD P:nvubdIzc ").unwrap(),
+        Trace {
+          cpu,
+          instruction: SEI,
+          addressing_mode: IMP,
+          undocumented: false,
+          data: vec![0x78],
+          param: 0x00,
+          param_expanded: 0x00,
+          addr: 0x00,
+          addr_abs: 0x00,
+          data_at: 0x00,
+        }
+      );
+    }
+
+    {
+      let mut cpu = Cpu::new();
+      cpu.pc = 0x8000;
+      cpu.a = 0x42;
+      cpu.x = 0xF5;
+      cpu.y = 0xA9;
+      cpu.s = 0xFD;
+      assert_eq!(
+        from_fceux_trace("$8000: 78       SEIA:42 X:F5 Y:A9 S:FD P:nvubdIzc ").unwrap(),
+        Trace {
+          cpu,
+          instruction: SEI,
+          addressing_mode: IMP,
+          undocumented: false,
+          data: vec![0x78],
+          param: 0x00,
+          param_expanded: 0x00,
+          addr: 0x00,
+          addr_abs: 0x00,
+          data_at: 0x00,
+        }
+      );
+    }
+
+    {
+      let mut cpu = Cpu::new();
+      cpu.pc = 0x8002;
+      assert_eq!(
+        from_fceux_trace("$8002: A9 10    LDA #$10A:00 X:00 Y:00 S:FD P:nvubdIzc ").unwrap(),
+        Trace {
+          cpu,
+          instruction: LDA,
+          addressing_mode: IMM,
+          undocumented: false,
+          data: vec![0xA9, 0x10],
+          param: 0x10,
+          param_expanded: 0x00,
+          addr: 0x00,
+          addr_abs: 0x00,
+          data_at: 0x00,
+        }
+      );
+    }
+
+    {
+      let mut cpu = Cpu::new();
+      cpu.pc = 0x8004;
+      cpu.a = 0x10;
+      assert_eq!(
+        from_fceux_trace("$8004: 8D 00 20 STA $2000 = #$00A:10 X:00 Y:00 S:FD P:nvubdIzc ")
+          .unwrap(),
+        Trace {
+          cpu,
+          instruction: STA,
+          addressing_mode: ABS,
+          undocumented: false,
+          data: vec![0x8D, 0x00, 0x20],
+          param: 0x00,
+          param_expanded: 0x00,
+          addr: 0x2000,
+          addr_abs: 0x00,
+          data_at: 0x00,
+        }
+      );
+    }
+
+    {
+      let mut cpu = Cpu::new();
+      cpu.pc = 0x800D;
+      cpu.a = 0x10;
+      cpu.x = 0xFF;
+      cpu.s = 0xFF;
+      assert_eq!(
+        from_fceux_trace("$800D: 10 FB    BPL $800AA:10 X:FF Y:00 S:FF P:nvubdIzc ").unwrap(),
+        Trace {
+          cpu,
+          instruction: BPL,
+          addressing_mode: REL,
+          undocumented: false,
+          data: vec![0x10, 0xFB],
+          param: 0x00,
+          param_expanded: 0x00,
+          addr: 0x0000,
+          addr_abs: 0x800A,
+          data_at: 0x00,
+        }
+      );
+    }
+
+    {
+      let mut cpu = Cpu::new();
+      cpu.pc = 0x90D4;
+      cpu.a = 0x00;
+      cpu.x = 0x02;
+      cpu.y = 0x72;
+      cpu.s = 0xFD;
+      assert_eq!(
+        from_fceux_trace("$90D4: E0 01    CPX #$01A:00 X:02 Y:72 S:FD P:nvubdIzc ").unwrap(),
+        Trace {
+          cpu,
+          instruction: CPX,
+          addressing_mode: IMM,
+          undocumented: false,
+          data: vec![0xE0, 0x01],
+          param: 0x01,
+          param_expanded: 0x00,
+          addr: 0x0000,
+          addr_abs: 0x0000,
+          data_at: 0x00,
+        }
+      );
+    }
+
+    {
+      let mut cpu = Cpu::new();
+      cpu.pc = 0x8001;
+      cpu.s = 0xFD;
+      assert_eq!(
+        from_fceux_trace("$8001: D8       CLDA:00 X:00 Y:00 S:FD P:nvubdIzc ").unwrap(),
+        Trace {
+          cpu,
+          instruction: CLD,
+          addressing_mode: IMP,
+          undocumented: false,
+          data: vec![0xD8],
+          param: 0x00,
+          param_expanded: 0x00,
+          addr: 0x0000,
+          addr_abs: 0x0000,
+          data_at: 0x00,
+        }
+      );
+    }
+
+    {
+      let mut cpu = Cpu::new();
+      cpu.pc = 0x802B;
+      cpu.a = 0xFF;
+      cpu.x = 0x05;
+      cpu.y = 0xFE;
+      cpu.s = 0xFF;
+      cpu.set_status(Negative, true);
+      cpu.set_status(DisableInterrupts, true);
+      cpu.set_status(Carry, true);
+      assert_eq!(
+        from_fceux_trace("$802B: 20 CC 90 JSR $90CCA:FF X:05 Y:FE S:FF P:NvubdIzC ").unwrap(),
+        Trace {
+          cpu,
+          instruction: JSR,
+          addressing_mode: ABS,
+          undocumented: false,
+          data: vec![0x20, 0xCC, 0x90],
+          param: 0x00,
+          param_expanded: 0x00,
+          addr: 0x0000,
+          addr_abs: 0x0000,
+          data_at: 0x00,
+        }
+      );
+    }
   }
 }

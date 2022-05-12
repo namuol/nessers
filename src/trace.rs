@@ -2,23 +2,18 @@ use crate::cpu6502::AddressingMode::*;
 use crate::cpu6502::{AddressingMode, Cpu, Instruction, Operation};
 use crate::nes::Nes;
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Trace {
   pub cpu: Cpu,
   pub instruction: Instruction,
   pub addressing_mode: AddressingMode,
+  pub undocumented: bool,
   pub data: Vec<u8>,
   pub param: u8,
   pub param_expanded: u8,
   pub addr: u16,
   pub addr_abs: u16,
   pub data_at: u8,
-}
-
-impl Trace {
-  pub fn from_fceux_trace(string: &str) -> Trace {
-    todo!();
-  }
 }
 
 pub fn trace(nes: &Nes, pc_: u16) -> Trace {
@@ -135,9 +130,9 @@ pub fn trace(nes: &Nes, pc_: u16) -> Trace {
     }
     ACC => {}
     REL => {
-      addr = pc;
+      let addr = pc;
       // Relative; read one byte:
-      param = nes.safe_cpu_read(addr);
+      let param = nes.safe_cpu_read(addr);
 
       pc += 1;
 
@@ -156,12 +151,13 @@ pub fn trace(nes: &Nes, pc_: u16) -> Trace {
   }
 
   let mut cpu = nes.cpu.clone();
-  cpu.pc = pc;
+  cpu.pc = pc_;
 
   Trace {
     cpu,
     instruction: operation.instruction,
     addressing_mode: operation.addressing_mode,
+    undocumented: operation.undocumented,
     data,
 
     param,

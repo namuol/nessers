@@ -1,8 +1,8 @@
 use crate::cpu6502::AddressingMode::*;
 use crate::cpu6502::Instruction::*;
-use crate::cpu6502::Operation;
 use crate::nes::Nes;
 use crate::trace::trace;
+use crate::trace::Trace;
 
 pub struct DisassembledOperation {
   pub instruction_name: String,
@@ -16,10 +16,16 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
   let mut output: Vec<DisassembledOperation> = vec![];
   let mut pc = start;
   while pc < start + length {
-    let addr_ = pc;
-    let trace = trace(nes, addr_);
-    let operation: &Operation = nes.safe_cpu_read(pc).into();
-    pc += 1;
+    let trace = trace(nes, pc);
+    pc += trace.data.len() as u16;
+    output.push(trace.into());
+  }
+
+  output
+}
+
+impl From<Trace> for DisassembledOperation {
+  fn from(trace: Trace) -> Self {
     let instruction_name: String = match trace.instruction {
       ADC => "ADC",
       AND => "AND",
@@ -151,7 +157,6 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
         }
       }
       IZY => {
-        pc += 1;
         format!(
           "(${:02X}),Y = {:04X} @ {:04X} = {:02X}",
           trace.param, trace.addr, trace.addr_abs, trace.data_at
@@ -166,14 +171,12 @@ pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperat
       }
     };
 
-    output.push(DisassembledOperation {
+    DisassembledOperation {
       instruction_name,
       params,
-      addr: addr_,
+      addr: trace.cpu.pc,
       data: trace.data,
-      undocumented: operation.undocumented,
-    });
+      undocumented: trace.undocumented,
+    }
   }
-
-  output
 }

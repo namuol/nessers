@@ -25,11 +25,11 @@ pub struct Ppu {
   data_buffer: u8,
 
   /// The address which will be written to or read from
-  address: u16,
+  pub address: u16,
 
-  status: u8,
-  mask: u8,
-  control: u8,
+  pub status: u8,
+  pub mask: u8,
+  pub control: u8,
 
   /// Whether a non-maskable interrupt has been triggered
   pub nmi: bool,
@@ -45,15 +45,30 @@ pub trait StatusRegister {
   fn set_vblank(self, v: bool) -> Self;
 }
 
+trait SetFlag {
+  fn set(self, pos: u8, v: bool) -> Self;
+}
+
+impl SetFlag for u8 {
+  fn set(self, pos: u8, v: bool) -> Self {
+    let x = 1 << pos;
+    if v {
+      self | x
+    } else {
+      self & !x
+    }
+  }
+}
+
 #[rustfmt::skip]
 impl StatusRegister for u8 {
   fn vblank(self)          -> bool { (1 << 7) & self != 0 }
   fn sprite_zero_hit(self) -> bool { (1 << 6) & self != 0 }
   fn sprite_overflow(self) -> bool { (1 << 5) & self != 0 }
 
-  fn set_vblank(self, v: bool)          -> u8 { self | (v as u8 * (1 << 7)) }
-  fn set_sprite_zero_hit(self, v: bool) -> u8 { self | (v as u8 * (1 << 6)) }
-  fn set_sprite_overflow(self, v: bool) -> u8 { self | (v as u8 * (1 << 5)) }
+  fn set_vblank(self, v: bool)          -> u8 { self.set(7, v) }
+  fn set_sprite_zero_hit(self, v: bool) -> u8 { self.set(6, v) }
+  fn set_sprite_overflow(self, v: bool) -> u8 { self.set(5, v) }
 }
 
 pub trait MaskRegister {
@@ -87,14 +102,14 @@ impl MaskRegister for u8 {
   fn enhance_green(self)          -> bool { (1 << 1) & self != 0 }
   fn enhance_blue(self)           -> bool { (1 << 0) & self != 0 }
 
-  fn set_grayscale(self, v: bool)              -> u8 { self | v as u8 * (1 << 7) }
-  fn set_render_background_left(self, v: bool) -> u8 { self | v as u8 * (1 << 6) }
-  fn set_render_sprites_left(self, v: bool)    -> u8 { self | v as u8 * (1 << 5) }
-  fn set_render_background(self, v: bool)      -> u8 { self | v as u8 * (1 << 4) }
-  fn set_render_sprites(self, v: bool)         -> u8 { self | v as u8 * (1 << 3) }
-  fn set_enhance_red(self, v: bool)            -> u8 { self | v as u8 * (1 << 2) }
-  fn set_enhance_green(self, v: bool)          -> u8 { self | v as u8 * (1 << 1) }
-  fn set_enhance_blue(self, v: bool)           -> u8 { self | v as u8 * (1 << 0) }
+  fn set_grayscale(self, v: bool)              -> u8 { self.set(7, v) }
+  fn set_render_background_left(self, v: bool) -> u8 { self.set(6, v) }
+  fn set_render_sprites_left(self, v: bool)    -> u8 { self.set(5, v) }
+  fn set_render_background(self, v: bool)      -> u8 { self.set(4, v) }
+  fn set_render_sprites(self, v: bool)         -> u8 { self.set(3, v) }
+  fn set_enhance_red(self, v: bool)            -> u8 { self.set(2, v) }
+  fn set_enhance_green(self, v: bool)          -> u8 { self.set(1, v) }
+  fn set_enhance_blue(self, v: bool)           -> u8 { self.set(0, v) }
 }
 
 pub trait ControlRegister {
@@ -128,14 +143,14 @@ impl ControlRegister for u8 {
   fn slave_mode(self)         -> bool { (1 << 6) & self != 0 }
   fn enable_nmi(self)         -> bool { (1 << 7) & self != 0 }
 
-  fn set_nametable_x(self, v: bool)         -> u8 { self | v as u8 * (1 << 0) }
-  fn set_nametable_y(self, v: bool)         -> u8 { self | v as u8 * (1 << 1) }
-  fn set_increment_mode(self, v: bool)      -> u8 { self | v as u8 * (1 << 2) }
-  fn set_pattern_sprite(self, v: bool)      -> u8 { self | v as u8 * (1 << 3) }
-  fn set_pattern_background(self, v: bool)  -> u8 { self | v as u8 * (1 << 4) }
-  fn set_sprite_size(self, v: bool)         -> u8 { self | v as u8 * (1 << 5) }
-  fn set_slave_mode(self, v: bool)          -> u8 { self | v as u8 * (1 << 6) }
-  fn set_enable_nmi(self, v: bool)          -> u8 { self | v as u8 * (1 << 7) }
+  fn set_nametable_x(self, v: bool)         -> u8 { self.set(0, v) }
+  fn set_nametable_y(self, v: bool)         -> u8 { self.set(1, v) }
+  fn set_increment_mode(self, v: bool)      -> u8 { self.set(2, v) }
+  fn set_pattern_sprite(self, v: bool)      -> u8 { self.set(3, v) }
+  fn set_pattern_background(self, v: bool)  -> u8 { self.set(4, v) }
+  fn set_sprite_size(self, v: bool)         -> u8 { self.set(5, v) }
+  fn set_slave_mode(self, v: bool)          -> u8 { self.set(6, v) }
+  fn set_enable_nmi(self, v: bool)          -> u8 { self.set(7, v) }
 }
 
 impl Ppu {
@@ -151,6 +166,7 @@ impl Ppu {
 
       // Misc internal state
       address_latch: 0x00,
+
       data_buffer: 0x00,
       address: 0x0000,
 
@@ -212,6 +228,7 @@ impl Ppu {
     }
   }
 
+  #[allow(unused_comparisons)]
   pub fn ppu_read(&self, addr: u16) -> u8 {
     if addr >= 0x0000 && addr <= 0x1FFF {
       // 0x0000 -> 0x1FFF = pattern memory
@@ -235,6 +252,7 @@ impl Ppu {
     0x00
   }
 
+  #[allow(unused_comparisons)]
   pub fn ppu_write(&mut self, addr: u16, data: u8) {
     if addr >= 0x0000 && addr <= 0x1FFF {
       // 0x0000 -> 0x1FFF = pattern memory
@@ -325,7 +343,7 @@ impl BusDevice for Ppu {
     }
   }
 
-  fn safe_read(&self, addr: u16) -> Option<u8> {
+  fn safe_read(&self, _addr: u16) -> Option<u8> {
     todo!()
   }
 

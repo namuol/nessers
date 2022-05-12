@@ -20,7 +20,7 @@ pub enum StatusFlag {
 }
 use StatusFlag::*;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Cpu {
   /// Processor Status
   pub status: u8,
@@ -46,8 +46,8 @@ pub const STACK_SIZE: u8 = 0xFF;
 /// An address that should contain a pointer to the start of our program
 pub const PC_INIT_ADDR: u16 = 0xFFFC;
 
-const IRQ_POINTER: u16 = 0xFFFE;
-const NMI_POINTER: u16 = 0xFFFA;
+pub const IRQ_POINTER: u16 = 0xFFFE;
+pub const NMI_POINTER: u16 = 0xFFFA;
 
 impl Cpu {
   pub fn new() -> Cpu {
@@ -236,6 +236,7 @@ impl Cpu {
     self.set_status(DisableInterrupts, true);
     self.push(bus, self.status);
     let irq_addr = bus.read16(NMI_POINTER);
+    println!("NMI IRQ {:04X}", irq_addr);
     self.pc = irq_addr;
 
     self.cycles_left = 8;
@@ -290,7 +291,7 @@ pub struct AddressingModeResult {
 /// (`addr_abs`)
 type AddressingModeImplementation = fn(&mut Cpu, &mut dyn Bus<Cpu>) -> AddressingModeResult;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum AddressingMode {
   IMP,
   IMM,
@@ -313,8 +314,7 @@ struct InstructionResult {
 }
 type InstructionImplementation = fn(&mut Cpu, &mut dyn Bus<Cpu>, &DataSource) -> InstructionResult;
 
-
-#[derive(Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Instruction {
   ADC,
   AND,
@@ -3212,132 +3212,132 @@ mod tests {
     // translating the data tables to create these test cases.
     return;
 
-    struct TestSBC {
-      // inputs:
-      a: u8,
-      m: u8,
+    // struct TestSBC {
+    //   // inputs:
+    //   a: u8,
+    //   m: u8,
 
-      // expected outputs:
-      r: u8,
-      c: bool, // carry bit
-      v: bool, // overflow bit
-      z: bool, // zero bit
-      n: bool, // negative bit
-    }
+    //   // expected outputs:
+    //   r: u8,
+    //   c: bool, // carry bit
+    //   v: bool, // overflow bit
+    //   z: bool, // zero bit
+    //   n: bool, // negative bit
+    // }
 
-    // Tests derived from the table at the bottom of this article:
-    //
-    // http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
-    let tests: Vec<TestSBC> = vec![
-      TestSBC {
-        a: 0x50,
-        m: 0xF0,
+    // // Tests derived from the table at the bottom of this article:
+    // //
+    // // http://www.righto.com/2012/12/the-6502-overflow-flag-explained.html
+    // let tests: Vec<TestSBC> = vec![
+    //   TestSBC {
+    //     a: 0x50,
+    //     m: 0xF0,
 
-        r: 0x60,
-        c: false,
-        v: false,
-        z: false,
-        n: false,
-      },
-      TestSBC {
-        a: 0x50,
-        m: 0xB0,
+    //     r: 0x60,
+    //     c: false,
+    //     v: false,
+    //     z: false,
+    //     n: false,
+    //   },
+    //   TestSBC {
+    //     a: 0x50,
+    //     m: 0xB0,
 
-        r: 0xA0,
-        c: false,
-        v: true,
-        z: false,
-        n: true,
-      },
-      TestSBC {
-        a: 0x50,
-        m: 0x70,
+    //     r: 0xA0,
+    //     c: false,
+    //     v: true,
+    //     z: false,
+    //     n: true,
+    //   },
+    //   TestSBC {
+    //     a: 0x50,
+    //     m: 0x70,
 
-        r: 0xE0,
-        c: false,
-        v: false,
-        z: false,
-        n: true,
-      },
-      TestSBC {
-        a: 0x50,
-        m: 0x30,
+    //     r: 0xE0,
+    //     c: false,
+    //     v: false,
+    //     z: false,
+    //     n: true,
+    //   },
+    //   TestSBC {
+    //     a: 0x50,
+    //     m: 0x30,
 
-        r: 0x20, // 0x20 + 0x100 (carry)
-        c: true,
-        v: false,
-        z: false,
-        n: false,
-      },
-      TestSBC {
-        a: 0xD0,
-        m: 0xF0,
+    //     r: 0x20, // 0x20 + 0x100 (carry)
+    //     c: true,
+    //     v: false,
+    //     z: false,
+    //     n: false,
+    //   },
+    //   TestSBC {
+    //     a: 0xD0,
+    //     m: 0xF0,
 
-        r: 0xE0,
-        c: false,
-        v: false,
-        z: false,
-        n: true,
-      },
-      TestSBC {
-        a: 0xD0,
-        m: 0xB0,
+    //     r: 0xE0,
+    //     c: false,
+    //     v: false,
+    //     z: false,
+    //     n: true,
+    //   },
+    //   TestSBC {
+    //     a: 0xD0,
+    //     m: 0xB0,
 
-        r: 0x20, // 0x20 + 0x100 (carry)
-        c: true,
-        v: false,
-        z: false,
-        n: false,
-      },
-      TestSBC {
-        a: 0xD0,
-        m: 0x70,
+    //     r: 0x20, // 0x20 + 0x100 (carry)
+    //     c: true,
+    //     v: false,
+    //     z: false,
+    //     n: false,
+    //   },
+    //   TestSBC {
+    //     a: 0xD0,
+    //     m: 0x70,
 
-        r: 0x60, // 0x60 + 0x100 (carry)
-        c: true,
-        v: true,
-        z: false,
-        n: false,
-      },
-      TestSBC {
-        a: 0xD0,
-        m: 0x30,
+    //     r: 0x60, // 0x60 + 0x100 (carry)
+    //     c: true,
+    //     v: true,
+    //     z: false,
+    //     n: false,
+    //   },
+    //   TestSBC {
+    //     a: 0xD0,
+    //     m: 0x30,
 
-        r: 0xA0, // 0xA0 + 0x100 (carry)
-        c: true,
-        v: false,
-        z: false,
-        n: true,
-      },
-    ];
+    //     r: 0xA0, // 0xA0 + 0x100 (carry)
+    //     c: true,
+    //     v: false,
+    //     z: false,
+    //     n: true,
+    //   },
+    // ];
 
-    for test in tests {
-      let program_start: u16 = 0x8000;
-      let mut bus: DeviceList = vec![Box::new(Ram::new(0x0000, 64 * 1024))];
-      let mut cpu = Cpu::new();
+    // for test in tests {
+    //   let program_start: u16 = 0x8000;
+    //   let mut bus: DeviceList = vec![Box::new(Ram::new(0x0000, 64 * 1024))];
+    //   let mut cpu = Cpu::new();
 
-      bus.write16(PC_INIT_ADDR, program_start);
-      #[rustfmt::skip]
-      let program: Vec<u8> = vec![
-          0xE9, test.m,
-      ];
-      let mut offset: u16 = 0;
-      for byte in program {
-        bus.write(program_start + offset, byte);
-        offset += 1;
-      }
-      cpu.sig_reset(&mut bus);
-      cpu.step(&mut bus);
-      cpu.a = test.a;
-      cpu.step(&mut bus);
+    //   bus.write16(PC_INIT_ADDR, program_start);
+    //   #[rustfmt::skip]
+    //   let program: Vec<u8> = vec![
+    //       0xE9, test.m,
+    //   ];
+    //   let mut offset: u16 = 0;
+    //   for byte in program {
+    //     bus.write(program_start + offset, byte);
+    //     offset += 1;
+    //   }
+    //   cpu.sig_reset(&mut bus);
+    //   cpu.step(&mut bus);
+    //   cpu.a = test.a;
+    //   cpu.step(&mut bus);
 
-      // The result should be stored into cpu.a:
-      assert_eq!(cpu.a, test.r);
+    //   // The result should be stored into cpu.a:
+    //   assert_eq!(cpu.a, test.r);
 
-      assert_eq!(cpu.get_status(Carry) != 0, test.c);
-      assert_eq!(cpu.get_status(Overflow) != 0, test.v);
-      assert_eq!(cpu.get_status(Zero) != 0, test.z);
-      assert_eq!(cpu.get_status(Negative) != 0, test.n);
-    }
+    //   assert_eq!(cpu.get_status(Carry) != 0, test.c);
+    //   assert_eq!(cpu.get_status(Overflow) != 0, test.v);
+    //   assert_eq!(cpu.get_status(Zero) != 0, test.z);
+    //   assert_eq!(cpu.get_status(Negative) != 0, test.n);
+    // }
   }
 }
