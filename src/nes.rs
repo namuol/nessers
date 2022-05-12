@@ -99,13 +99,6 @@ impl Nes {
 
   pub fn break_at(&mut self, addr: &Vec<u16>) {
     loop {
-      // HACK: If something brings us back to $8000, then break before
-      let mut next_nes = self.clone();
-      next_nes.step();
-      if next_nes.cpu.pc == 0x8000 {
-        return;
-      }
-
       self.step();
       if addr.contains(&self.cpu.pc) {
         println!("Broke at {:04X}", self.cpu.pc);

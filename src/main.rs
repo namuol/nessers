@@ -149,9 +149,9 @@ impl Game for NESDebugger {
       if key == "Space" {
         self.nes.step();
       } else if key == "T" {
-        self.nes.step_with_callback(|nes| {
-          println!("{}", nes.trace())
-        })
+        self
+          .nes
+          .step_with_callback(|nes| println!("{}", nes.trace()))
       } else if key == "R" {
         self.nes.reset();
       } else if key == "F" {
@@ -169,79 +169,7 @@ impl Game for NESDebugger {
         );
       } else if key == "B" {
         self.nes.break_at(&vec![
-          0x9032,
-          0x802B,
-          //
-          0x812E,
-          // Here's where we write to 0x07A7:
-          // 0x90DC, // This one only writes to 0x07A7 once.
-          0x8039,
-          0x8119,
-          0x8131, // This one seems important.
-          // THIS IS WHERE PPU PALETTE WRITE HAPPENS:
-          // 0x8EBB,
-          /*0x8EF3, 0x8EBB, 0x8082, 0x8eac,*/
-          // This should be JSR 0x8EED; it _should_ push return addr 0x8eac - 1
-          // onto the stack as [ab 8e] in position 01f9 = 80
-          //
-          // This never seems to get hit.
-          // 0x8ea9,
-          // This seems to be what leads to the above; it DOES get hit:
-          // 0x8eec
-          // We seem to get stuck here.
-          // 0x80AE,
-
-          // This is the first instruction location we hit when we're "on the
-          // path" to writing to PPU palette (addr 0x8EBB)
-          // 0x8E92,
-          // Here's a BNE instruction that leads to 0x8E92; this is where things
-          // clearly diverge.
-          // 0x8EE4,
-
-          // Here's just a few instructions above 0x8ee4
-          // 0x8ee0,
-
-          // Okay, so here's what I know:
-          //
-          // The BNE that occurs on 0x8EE4 looks at a value loaded from location
-          // 0x0301 in memory.
-          //
-          // This value is consistently zero in my memory dump view.
-          //
-          // I need to track where this is written to, store those addresses as
-          // breakpoints, and see if these are actually getting hit.
-          //
-          // If not, well, more goose-chasing I guess...
-          //
-          // Okay, here's where I _think_ we're writing to 0x301:
-          // 0x8629
-          // ...and of course we're never hitting this.
-          //
-          // Looks like we jump into this from JSR here:
-          // 0x85ad,
-          // ...and of course we're never hitting this either.
-
-          // New approach; traced everything up until 0x85AD was hit in FCEUX in
-          // a log file; here's the first jump above it:
-          // 0x8E16,
-          // ^^^ $8E16: 6C 06 00 JMP ($0006) = $859BA:85 X:07 Y:04 S:F9 P:NvUbdIzc
-
-          // So this reads an address at $0006 and jumps to that address, which happens to be 0x859B
-          //
-          // I need to find where 0x859B is written to this address...
-          // ...which is here:
-          // 0x8E0F,
-          // This appears to be a subroutine for dynamically loading an address
-          // and jumping to it.
-          //
-          // The jump into this subroutine happens here; it happens only once
-          // _before_ the fateful jump, at least in fceux:
-          // 0x856A,
-          // ...but this never gets hit in our emulator.
-          //
-          // JSR before that:
-          // 0x8234,
-          // 0x90E6,
+          // Add addresses here for a hacky way to do breakpoints lol
         ]);
       } else if key == "P" {
         self.debug_palette = (self.debug_palette + 1) % 8;
