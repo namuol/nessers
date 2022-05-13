@@ -236,7 +236,7 @@ impl Cpu {
     self.set_status(DisableInterrupts, true);
     self.push(bus, self.status);
     let irq_addr = bus.read16(NMI_POINTER);
-    println!("NMI IRQ {:04X} PC = {:04X} lo = {:02X} hi = {:02X}", irq_addr, self.pc, pc_lo, pc_hi);
+    // println!("NMI IRQ {:04X} PC = {:04X} lo = {:02X} hi = {:02X}", irq_addr, self.pc, pc_lo, pc_hi);
     self.pc = irq_addr;
 
     self.cycles_left = 8;
@@ -2881,6 +2881,7 @@ impl From<u8> for &Operation {
 mod tests {
   use super::*;
   use crate::bus_device::BusDevice;
+  use crate::cart::Cart;
   use crate::ram::Ram;
 
   /// A list of bus devices, in order of "priority". The order of devices does
@@ -2889,12 +2890,22 @@ mod tests {
   /// When performing a read or write, devices are accessed in the order supplied
   /// in this list. When a device returns `Some` from a `read`/`write`, it now
   /// owns that operation, and all devices after it in the list are ignored.
-  pub type DeviceList = Vec<Box<dyn BusDevice>>;
+  struct DeviceList {
+    devices: Vec<Box<dyn BusDevice>>,
+    cart: Cart,
+  }
+
+  impl DeviceList {
+    pub fn new(devices: Vec<Box<dyn BusDevice>>) -> DeviceList {
+      let cart = Cart::from_file("src/test_fixtures/nestest.nes").unwrap();
+      DeviceList { devices, cart }
+    }
+  }
 
   impl Bus<Cpu> for DeviceList {
     fn write(&mut self, addr: u16, data: u8) {
-      for device in self {
-        match device.write(addr, data) {
+      for i in 0..self.devices.len() {
+        match self.devices[i].write(addr, data, &self.cart) {
           None => (),
           Some(_) => {
             break;
@@ -2903,8 +2914,8 @@ mod tests {
       }
     }
     fn read(&mut self, addr: u16) -> u8 {
-      for device in self {
-        match device.read(addr) {
+      for i in 0..self.devices.len() {
+        match self.devices[i].read(addr, &self.cart) {
           None => (),
           Some(data) => {
             return data;
@@ -2914,8 +2925,8 @@ mod tests {
       0x00
     }
     fn safe_read(&self, addr: u16) -> u8 {
-      for device in self {
-        match device.safe_read(addr) {
+      for device in &self.devices {
+        match device.safe_read(addr, &self.cart) {
           None => (),
           Some(data) => {
             return data;
@@ -2939,10 +2950,10 @@ mod tests {
 
   struct DummyBus {}
   impl BusDevice for DummyBus {
-    fn write(&mut self, _: u16, _: u8) -> std::option::Option<()> {
+    fn write(&mut self, _: u16, _: u8, cart: &Cart) -> std::option::Option<()> {
       None
     }
-    fn safe_read(&self, _: u16) -> std::option::Option<u8> {
+    fn safe_read(&self, _: u16, cart: &Cart) -> std::option::Option<u8> {
       None
     }
   }
@@ -2991,7 +3002,7 @@ mod tests {
 
   #[test]
   fn simple_and() {
-    let mut bus: DeviceList = vec![Box::new(Ram::new(0x0000, 64 * 1024))];
+    let mut bus: DeviceList = DeviceList::new(vec![Box::new(Ram::new(0x0000, 64 * 1024))]);
     let mut cpu = Cpu::new();
     let program_start: u16 = 0x8000;
 
@@ -3018,7 +3029,7 @@ mod tests {
   fn simple_ora() {
     let ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = 0x8000;
-    let mut bus: DeviceList = vec![Box::new(ram)];
+    let mut bus: DeviceList = DeviceList::new(vec![Box::new(ram)]);
     let mut cpu = Cpu::new();
     bus.write16(PC_INIT_ADDR, program_start);
 
@@ -3042,7 +3053,7 @@ mod tests {
   fn simple_eor() {
     let ram = Ram::new(0x0000, 64 * 1024);
     let program_start: u16 = 0x8000;
-    let mut bus: DeviceList = vec![Box::new(ram)];
+    let mut bus: DeviceList = DeviceList::new(vec![Box::new(ram)]);
     let mut cpu = Cpu::new();
     bus.write16(PC_INIT_ADDR, program_start);
 
@@ -3177,7 +3188,7 @@ mod tests {
 
     for test in tests {
       let program_start: u16 = 0x8000;
-      let mut bus: DeviceList = vec![Box::new(Ram::new(0x0000, 64 * 1024))];
+      let mut bus: DeviceList = DeviceList::new(vec![Box::new(Ram::new(0x0000, 64 * 1024))]);
       let mut cpu = Cpu::new();
 
       bus.write16(PC_INIT_ADDR, program_start);

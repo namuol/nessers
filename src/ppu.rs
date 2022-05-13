@@ -1,6 +1,7 @@
 use rand::Rng;
 
 use crate::bus_device::{BusDevice, BusDeviceRange};
+use crate::cart::Cart;
 use crate::palette::Palette;
 
 pub const SCREEN_W: usize = 256;
@@ -230,7 +231,7 @@ impl Ppu {
   }
 
   #[allow(unused_comparisons)]
-  pub fn ppu_read(&self, addr: u16) -> u8 {
+  pub fn ppu_read(&self, addr: u16, cart: &Cart) -> u8 {
     if addr >= 0x0000 && addr <= 0x1FFF {
       // 0x0000 -> 0x1FFF = pattern memory
       return self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize];
@@ -254,7 +255,7 @@ impl Ppu {
   }
 
   #[allow(unused_comparisons)]
-  pub fn ppu_write(&mut self, addr: u16, data: u8) {
+  pub fn ppu_write(&mut self, addr: u16, data: u8, cart: &Cart) {
     if addr >= 0x0000 && addr <= 0x1FFF {
       // 0x0000 -> 0x1FFF = pattern memory
       self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize] = data;
@@ -293,7 +294,7 @@ impl BusDeviceRange for Ppu {
 impl BusDevice for Ppu {
   // From `cpuRead` in
   // https://www.youtube.com/watch?v=xdzOvpYPmGE&list=PLrOv9FMX8xJHqMvSGB_9G9nZZ_4IgteYf&index=4
-  fn read(&mut self, addr: u16) -> Option<u8> {
+  fn read(&mut self, addr: u16, cart: &Cart) -> Option<u8> {
     if !self.in_range(addr) {
       return None;
     }
@@ -326,7 +327,7 @@ impl BusDevice for Ppu {
         // basically a simulation of a read operation that takes more than one
         // cycle to complete.
         let data = self.data_buffer;
-        self.data_buffer = self.ppu_read(self.address);
+        self.data_buffer = self.ppu_read(self.address, cart);
 
         // Addresses above 0x3F00 are part of the palette memory which can be
         // read right away rather than taking an extra cycle:
@@ -344,12 +345,12 @@ impl BusDevice for Ppu {
     }
   }
 
-  fn safe_read(&self, _addr: u16) -> Option<u8> {
+  fn safe_read(&self, _addr: u16, cart: &Cart) -> Option<u8> {
     todo!()
   }
 
   // From `cpuWrite` in https://www.youtube.com/watch?v=xdzOvpYPmGE&list=PLrOv9FMX8xJHqMvSGB_9G9nZZ_4IgteYf&index=4
-  fn write(&mut self, addr: u16, data: u8) -> Option<()> {
+  fn write(&mut self, addr: u16, data: u8, cart: &Cart) -> Option<()> {
     if !self.in_range(addr) {
       return None;
     }
@@ -377,7 +378,7 @@ impl BusDevice for Ppu {
         }
       }
       0x0007 => {
-        self.ppu_write(self.address, data);
+        self.ppu_write(self.address, data, cart);
 
         // Auto-increment our address for the next operation if the developer
         // so-chooses:

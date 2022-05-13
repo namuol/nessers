@@ -1,6 +1,5 @@
 use std::fs;
 
-use crate::bus_device::BusDevice;
 use crate::mapper::{Mapper, MAPPERS};
 
 const HEADER_START: [u8; 4] = [
@@ -24,6 +23,8 @@ pub struct Cart {
 pub enum Mirroring {
   Horizontal,
   Vertical,
+  OneScreenLo,
+  OneScreenHi,
 }
 #[derive(Clone)]
 pub struct CartCpuMapper {
@@ -122,24 +123,30 @@ impl Cart {
   }
 }
 
-impl BusDevice for CartCpuMapper {
-  fn safe_read(&self, addr: u16) -> Option<u8> {
+impl CartCpuMapper {
+  pub fn safe_read(&self, addr: u16) -> Option<u8> {
     let mapped_addr = (self.mapper.cpu_read)(addr, self.num_prg_banks)?;
     Some(self.prg[mapped_addr as usize])
   }
-  fn write(&mut self, addr: u16, data: u8) -> Option<()> {
+  pub fn read(&mut self, addr: u16) -> Option<u8> {
+    self.safe_read(addr)
+  }
+  pub fn write(&mut self, addr: u16, data: u8) -> Option<()> {
     let mapped_addr = (self.mapper.cpu_write)(addr, self.num_prg_banks)?;
     self.prg[mapped_addr as usize] = data;
     Some(())
   }
 }
 
-impl BusDevice for CartPpuMapper {
-  fn safe_read(&self, addr: u16) -> Option<u8> {
+impl CartPpuMapper {
+  pub fn safe_read(&self, addr: u16) -> Option<u8> {
     let mapped_addr = (self.mapper.ppu_read)(addr, self.num_chr_banks)?;
     Some(self.chr[mapped_addr as usize])
   }
-  fn write(&mut self, addr: u16, data: u8) -> Option<()> {
+  pub fn read(&mut self, addr: u16) -> Option<u8> {
+    self.safe_read(addr)
+  }
+  pub fn write(&mut self, addr: u16, data: u8) -> Option<()> {
     let mapped_addr = (self.mapper.ppu_write)(addr, self.num_chr_banks)?;
     self.chr[mapped_addr as usize] = data;
     Some(())

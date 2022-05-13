@@ -308,7 +308,7 @@ impl Bus<Cpu> for Nes {
   fn safe_read(&self, addr: u16) -> u8 {
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.cpu_mapper.safe_read(addr))
-      .or(self.ram_mirror.safe_read(&self.ram, addr))
+      .or(self.ram_mirror.safe_read(&self.ram, addr, &self.cart))
     {
       Some(data) => data,
       None => 0x00,
@@ -318,9 +318,12 @@ impl Bus<Cpu> for Nes {
   fn read(&mut self, addr: u16) -> u8 {
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.cpu_mapper.read(addr))
-      .or(self.ram_mirror.read(&mut self.ram, addr))
-      .or(self.ppu_registers_mirror.read(&mut self.ppu, addr))
-    {
+      .or(self.ram_mirror.read(&mut self.ram, addr, &self.cart))
+      .or(
+        self
+          .ppu_registers_mirror
+          .read(&mut self.ppu, addr, &self.cart),
+      ) {
       Some(data) => data,
       None => 0x00,
     }
@@ -332,8 +335,12 @@ impl Bus<Cpu> for Nes {
     }
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.cpu_mapper.write(addr, data))
-      .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data))
-      .or_else(|| self.ppu_registers_mirror.write(&mut self.ppu, addr, data));
+      .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data, &self.cart))
+      .or_else(|| {
+        self
+          .ppu_registers_mirror
+          .write(&mut self.ppu, addr, data, &self.cart)
+      });
   }
 }
 
@@ -347,7 +354,7 @@ impl Bus<Ppu> for Nes {
     let addr = addr_ & 0x3FFF;
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.ppu_mapper.read(addr))
-      .or(Some(self.ppu.ppu_read(addr)))
+      .or(Some(self.ppu.ppu_read(addr, &self.cart)))
     {
       Some(data) => data,
       None => 0x00,
@@ -359,7 +366,7 @@ impl Bus<Ppu> for Nes {
 
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.ppu_mapper.write(addr, data))
-      .or_else(|| Some(self.ppu.ppu_write(addr, data)));
+      .or_else(|| Some(self.ppu.ppu_write(addr, data, &self.cart)));
   }
 }
 

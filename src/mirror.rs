@@ -1,4 +1,7 @@
-use crate::bus_device::{BusDevice, BusDeviceRange};
+use crate::{
+  bus_device::{BusDevice, BusDeviceRange},
+  cart::Cart,
+};
 
 pub trait RangedBusDevice: BusDevice + BusDeviceRange {}
 impl<T> RangedBusDevice for T where T: BusDevice + BusDeviceRange {}
@@ -14,28 +17,34 @@ impl Mirror {
     Mirror { start, total_size }
   }
 
-  pub fn write(&mut self, master: &mut dyn RangedBusDevice, addr: u16, data: u8) -> Option<()> {
+  pub fn write(
+    &mut self,
+    master: &mut dyn RangedBusDevice,
+    addr: u16,
+    data: u8,
+    cart: &Cart,
+  ) -> Option<()> {
     if !self.in_range(addr) {
       return None;
     }
     let master_addr = master.start() + (addr % master.size() as u16);
-    master.write(master_addr, data)
+    master.write(master_addr, data, cart)
   }
 
-  pub fn read(&mut self, master: &mut dyn RangedBusDevice, addr: u16) -> Option<u8> {
+  pub fn read(&mut self, master: &mut dyn RangedBusDevice, addr: u16, cart: &Cart) -> Option<u8> {
     if !self.in_range(addr) {
       return None;
     }
     let master_addr = master.start() + (addr % master.size() as u16);
-    master.read(master_addr)
+    master.read(master_addr, cart)
   }
 
-  pub fn safe_read(&self, master: &dyn RangedBusDevice, addr: u16) -> Option<u8> {
+  pub fn safe_read(&self, master: &dyn RangedBusDevice, addr: u16, cart: &Cart) -> Option<u8> {
     if !self.in_range(addr) {
       return None;
     }
     let master_addr = master.start() + (addr % master.size() as u16);
-    master.safe_read(master_addr)
+    master.safe_read(master_addr, cart)
   }
 }
 
@@ -55,22 +64,23 @@ mod tests {
 
   #[test]
   fn ram_mirror() {
+    let cart = Cart::from_file("src/test_fixtures/nestest.nes").unwrap();
     let mut ram = Ram::new(0x0000, 32 * 1024);
     let mut mirror = Mirror::new(0x0000, 2 * 32 * 1024);
-    mirror.write(&mut ram, 0x0000, 42);
-    assert_eq!(mirror.read(&mut ram, 0x8000), Some(42));
-    assert_eq!(mirror.read(&mut ram, 0x0000), Some(42));
-    mirror.write(&mut ram, 0x0001, 43);
-    assert_eq!(mirror.read(&mut ram, 0x8001), Some(43));
-    assert_eq!(mirror.read(&mut ram, 0x0001), Some(43));
-    mirror.write(&mut ram, 0x7FFF, 44);
-    assert_eq!(mirror.read(&mut ram, 0xFFFF), Some(44));
-    assert_eq!(mirror.read(&mut ram, 0x7FFF), Some(44));
-    mirror.write(&mut ram, 0x7FFE, 45);
-    assert_eq!(mirror.read(&mut ram, 0xFFFE), Some(45));
-    assert_eq!(mirror.read(&mut ram, 0x7FFE), Some(45));
-    mirror.write(&mut ram, 0x7FFA, 46);
-    assert_eq!(mirror.read(&mut ram, 0xFFFA), Some(46));
-    assert_eq!(mirror.read(&mut ram, 0x7FFA), Some(46));
+    mirror.write(&mut ram, 0x0000, 42, &cart);
+    assert_eq!(mirror.read(&mut ram, 0x8000, &cart), Some(42));
+    assert_eq!(mirror.read(&mut ram, 0x0000, &cart), Some(42));
+    mirror.write(&mut ram, 0x0001, 43, &cart);
+    assert_eq!(mirror.read(&mut ram, 0x8001, &cart), Some(43));
+    assert_eq!(mirror.read(&mut ram, 0x0001, &cart), Some(43));
+    mirror.write(&mut ram, 0x7FFF, 44, &cart);
+    assert_eq!(mirror.read(&mut ram, 0xFFFF, &cart), Some(44));
+    assert_eq!(mirror.read(&mut ram, 0x7FFF, &cart), Some(44));
+    mirror.write(&mut ram, 0x7FFE, 45, &cart);
+    assert_eq!(mirror.read(&mut ram, 0xFFFE, &cart), Some(45));
+    assert_eq!(mirror.read(&mut ram, 0x7FFE, &cart), Some(45));
+    mirror.write(&mut ram, 0x7FFA, 46, &cart);
+    assert_eq!(mirror.read(&mut ram, 0xFFFA, &cart), Some(46));
+    assert_eq!(mirror.read(&mut ram, 0x7FFA, &cart), Some(46));
   }
 }

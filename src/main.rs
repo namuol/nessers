@@ -4,7 +4,7 @@ extern crate maplit;
 use coffee::graphics::{Color, Frame, Gpu, Window, WindowSettings};
 use coffee::input::{self, keyboard, Input};
 use coffee::load::Task;
-use coffee::ui::{Column, Element, Image, Renderer, Row, Text, UserInterface};
+use coffee::ui::{Align, Column, Element, Image, Justify, Renderer, Row, Text, UserInterface};
 use coffee::{Game, Result, Timer};
 use cpu6502::{NMI_POINTER, STACK_START};
 use docopt::Docopt;
@@ -35,6 +35,8 @@ Usage:
 nessers <rom>
 ";
 
+const TXT_SIZE: u16 = 24;
+
 #[derive(Deserialize)]
 struct Args {
   arg_rom: String,
@@ -43,7 +45,7 @@ struct Args {
 fn main() -> Result<()> {
   <NESDebugger as UserInterface>::run(WindowSettings {
     title: String::from("nessers"),
-    size: (1920, 1080),
+    size: ((SCREEN_W * 4 * 2) as u32, (SCREEN_H * 4 + 512 + 32) as u32),
     resizable: false,
     fullscreen: false,
     maximized: false,
@@ -239,6 +241,7 @@ impl UserInterface for NESDebugger {
     // Does nothing
   }
   fn layout(&mut self, window: &Window) -> Element<Message> {
+    self.nes.frame();
     let mut stack_str = String::new();
     let start: u16 = 0;
     for page in start..=(start + (STACK_SIZE as u16 / 16) * 4) {
@@ -266,10 +269,6 @@ impl UserInterface for NESDebugger {
     //   ram_str.push_str("\n");
     // }
 
-    let left_pane = Column::new().push(Text::new(&stack_str).size(20));
-    // .push(Text::new("---").size(30))
-    // .push(Text::new(&ram_str).size(30));
-
     let disassembled = disassemble(&self.nes, self.nes.cpu.pc, 128);
     let mut disassembled_output: Vec<String> = vec![];
     let mut pc_idx: i32 = 0;
@@ -289,52 +288,52 @@ impl UserInterface for NESDebugger {
       idx += 1;
     }
     let start = (pc_idx - 8).max(0).min(disassembled_output.len() as i32) as usize;
-    let end = ((start as i32) + 32)
+    let end = ((start as i32) + 16)
       .max(0)
       .min(disassembled_output.len() as i32) as usize;
     let disassembled_output = &disassembled_output[start..end];
 
     let center_pane = Column::new()
-      .width(600)
+      .width((window.width() / 4.0) as u32)
       .push(
         Row::new()
-          .push(Text::new("Status:").size(30))
-          .push(Text::new("C").size(30).color(
+          .push(Text::new("Status:").size(TXT_SIZE))
+          .push(Text::new("C").size(TXT_SIZE).color(
             if self.nes.cpu.get_status(StatusFlag::Carry) != 0x00 {
               ACTIVE_COLOR
             } else {
               INACTIVE_COLOR
             },
           ))
-          .push(Text::new("Z").size(30).color(
+          .push(Text::new("Z").size(TXT_SIZE).color(
             if self.nes.cpu.get_status(StatusFlag::Zero) != 0x00 {
               ACTIVE_COLOR
             } else {
               INACTIVE_COLOR
             },
           ))
-          .push(Text::new("I").size(30).color(
+          .push(Text::new("I").size(TXT_SIZE).color(
             if self.nes.cpu.get_status(StatusFlag::DisableInterrupts) != 0x00 {
               ACTIVE_COLOR
             } else {
               INACTIVE_COLOR
             },
           ))
-          .push(Text::new("B").size(30).color(
+          .push(Text::new("B").size(TXT_SIZE).color(
             if self.nes.cpu.get_status(StatusFlag::Break) != 0x00 {
               ACTIVE_COLOR
             } else {
               INACTIVE_COLOR
             },
           ))
-          .push(Text::new("O").size(30).color(
+          .push(Text::new("O").size(TXT_SIZE).color(
             if self.nes.cpu.get_status(StatusFlag::Overflow) != 0x00 {
               ACTIVE_COLOR
             } else {
               INACTIVE_COLOR
             },
           ))
-          .push(Text::new("N").size(30).color(
+          .push(Text::new("N").size(TXT_SIZE).color(
             if self.nes.cpu.get_status(StatusFlag::Negative) != 0x00 {
               ACTIVE_COLOR
             } else {
@@ -347,21 +346,21 @@ impl UserInterface for NESDebugger {
           "PC: {:04X}        PPU: {:02X} {:08b}",
           self.nes.cpu.pc, self.nes.ppu.status, self.nes.ppu.status
         ))
-        .size(30),
+        .size(TXT_SIZE),
       )
       .push(
         Text::new(&format!(
           " A: {:02X} ({:03})   CTRL: {:02X} {:08b}",
           self.nes.cpu.a, self.nes.cpu.a, self.nes.ppu.control, self.nes.ppu.control
         ))
-        .size(30),
+        .size(TXT_SIZE),
       )
       .push(
         Text::new(&format!(
           " X: {:02X} ({:03})   MASK: {:02X} {:08b}",
           self.nes.cpu.x, self.nes.cpu.x, self.nes.ppu.mask, self.nes.ppu.mask
         ))
-        .size(30),
+        .size(TXT_SIZE),
       )
       .push(
         Text::new(&format!(
@@ -370,61 +369,63 @@ impl UserInterface for NESDebugger {
           self.nes.cpu.y,
           self.nes.safe_cpu_read16(NMI_POINTER)
         ))
-        .size(30),
+        .size(TXT_SIZE),
       )
       .push(
         Text::new(&format!(
           "SP: {:02X} ({:03})   ADDR: {:04X}",
           self.nes.cpu.s, self.nes.cpu.s, self.nes.ppu.address
         ))
-        .size(30),
+        .size(TXT_SIZE),
       )
-      .push(Text::new(&disassembled_output.join("\n")).size(30));
+      .push(Text::new(&disassembled_output.join("\n")).size(TXT_SIZE));
 
-    let mut ui = Row::new()
-      .padding(8)
-      .spacing(8)
-      .width(window.width() as u32)
-      .height(window.height() as u32)
-      .push(left_pane);
-    // .push(center_pane);
+    let mut visuals = Column::new();
 
-    // ui = match &self.screen_img {
-    //   Some(img) => ui
-    //     // .push(Text::new("Screen:").size(30))
-    //     .push(Image::new(&img).width(786).height(723)),
-    //   None => ui,
-    // };
-
-    let mut tables = Column::new()
-      .width(256)
-      .height(window.height() as u32)
-      .spacing(8);
+    let mut tables = Row::new().width(1024).height(512);
     tables = match &self.pattern_table_0_img {
-      Some(img) => tables.push(Image::new(&img).width(256).height(256)),
+      Some(img) => tables.push(Image::new(&img).width(512).height(512)),
       None => tables,
     };
     tables = match &self.pattern_table_1_img {
-      Some(img) => tables.push(Image::new(&img).width(256).height(256)),
+      Some(img) => tables.push(Image::new(&img).width(512).height(512)),
       None => tables,
     };
 
-    let mut palettes = Row::new().spacing(8);
+    let mut palettes = Row::new().width(128 * 8).height(32);
 
     palettes = match &self.palettes_imgs {
       Some(imgs) => {
         for i in 0..8 {
-          palettes = palettes.push(Image::new(&imgs[i]).width(32).height(8));
+          palettes = palettes.push(Image::new(&imgs[i]).width(128).height(32));
         }
         palettes
       }
       None => palettes,
     };
 
-    tables = tables.push(palettes);
-    ui = ui.push(tables);
-    ui = ui.push(center_pane);
+    visuals = match &self.screen_img {
+      Some(img) => visuals.push(Image::new(&img).width(256 * 4).height(241 * 4)),
+      None => visuals,
+    };
 
+    let mem = Row::new()
+      // .width((window.width() / 4.0) as u32)
+      .align_self(Align::End)
+      .push(Text::new(&stack_str).size(TXT_SIZE));
+
+    let text = Column::new()
+      .width(SCREEN_W as u32 * 4)
+      .push(center_pane)
+      .push(mem)
+      .justify_content(Justify::Start)
+      .align_self(Align::Start);
+    visuals = visuals.push(tables).push(palettes);
+    let mut ui = Row::new()
+      .align_items(Align::Start)
+      .width(window.width() as u32)
+      .height(window.height() as u32);
+    ui = ui.push(visuals).push(text);
     ui.into()
   }
 }

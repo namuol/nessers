@@ -1,4 +1,7 @@
-use crate::bus_device::{BusDevice, BusDeviceRange};
+use crate::{
+  bus_device::{BusDevice, BusDeviceRange},
+  cart::Cart,
+};
 
 #[derive(Clone)]
 pub struct Ram {
@@ -25,7 +28,7 @@ impl BusDeviceRange for Ram {
 }
 
 impl BusDevice for Ram {
-  fn write(&mut self, addr: u16, data: u8) -> Option<()> {
+  fn write(&mut self, addr: u16, data: u8, cart: &Cart) -> Option<()> {
     if !self.in_range(addr) {
       return None;
     }
@@ -34,7 +37,7 @@ impl BusDevice for Ram {
     Some(())
   }
 
-  fn safe_read(&self, addr: u16) -> Option<u8> {
+  fn safe_read(&self, addr: u16, cart: &Cart) -> Option<u8> {
     if !self.in_range(addr) {
       return None;
     }

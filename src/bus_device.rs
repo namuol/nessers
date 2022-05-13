@@ -1,9 +1,11 @@
+use crate::cart::Cart;
+
 pub trait BusDevice {
-  fn read(&mut self, addr: u16) -> Option<u8> {
-    self.safe_read(addr)
+  fn read(&mut self, addr: u16, cart: &Cart) -> Option<u8> {
+    self.safe_read(addr, cart)
   }
-  fn write(&mut self, addr: u16, data: u8) -> Option<()>;
-  fn safe_read(&self, addr: u16) -> Option<u8>;
+  fn write(&mut self, addr: u16, data: u8, cart: &Cart) -> Option<()>;
+  fn safe_read(&self, addr: u16, cart: &Cart) -> Option<u8>;
 }
 
 pub trait BusDeviceRange {
