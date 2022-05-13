@@ -1,7 +1,7 @@
 use rand::Rng;
 
 use crate::bus_device::{BusDevice, BusDeviceRange};
-use crate::cart::Cart;
+use crate::cart::{Cart, Mirroring};
 use crate::palette::Palette;
 
 pub const SCREEN_W: usize = 256;
@@ -197,21 +197,23 @@ impl Ppu {
       self.frame_complete = false;
     }
 
-    let mut rng = rand::thread_rng();
+    // Random noise:
+    //
+    // let mut rng = rand::thread_rng();
 
-    let screen_x = self.cycle - 1;
-    let screen_y = self.scanline;
-    if screen_x >= 0
-      && screen_y >= 0
-      && screen_x < (SCREEN_W as isize)
-      && screen_y < (SCREEN_H as isize)
-    {
-      let idx = (screen_y as usize) * SCREEN_W + (screen_x as usize);
-      let color = self.palette.colors[rng.gen_range(0, 64)];
-      self.screen[idx][0] = color.r;
-      self.screen[idx][1] = color.g;
-      self.screen[idx][2] = color.b;
-    }
+    // let screen_x = self.cycle - 1;
+    // let screen_y = self.scanline;
+    // if screen_x >= 0
+    //   && screen_y >= 0
+    //   && screen_x < (SCREEN_W as isize)
+    //   && screen_y < (SCREEN_H as isize)
+    // {
+    //   let idx = (screen_y as usize) * SCREEN_W + (screen_x as usize);
+    //   let color = self.palette.colors[rng.gen_range(0, 64)];
+    //   self.screen[idx][0] = color.r;
+    //   self.screen[idx][1] = color.g;
+    //   self.screen[idx][2] = color.b;
+    // }
 
     // Move right one pixel...
     self.cycle += 1;
@@ -237,9 +239,29 @@ impl Ppu {
       return self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize];
     } else if addr >= 0x2000 && addr <= 0x3EFF {
       // 0x2000 -> 0x3EFF = nametable memory
+
+      let table = match cart.mirroring {
+        Mirroring::Vertical => match addr {
+          0x0000..=0x03FF => 0,
+          0x0400..=0x07FF => 1,
+          0x0800..=0x0BFF => 0,
+          0x0C00..=0x0FFF => 1,
+          _ => 0x00,
+        },
+        Mirroring::Horizontal => match addr {
+          0x0000..=0x03FF => 0,
+          0x0400..=0x07FF => 0,
+          0x0800..=0x0BFF => 1,
+          0x0C00..=0x0FFF => 1,
+          _ => 0x00,
+        },
+        Mirroring::OneScreenLo => todo!(),
+        Mirroring::OneScreenHi => todo!(),
+      };
+
+      return self.name_tables[table][(addr & 0x03FF) as usize];
     } else if addr >= 0x3F00 && addr <= 0x3FFF {
       // 0x3F00 -> 0x3FFF = palette memory
-
       let addr = match addr & 0x001F {
         0x0010 => 0x0000,
         0x0014 => 0x0004,
@@ -262,6 +284,27 @@ impl Ppu {
       return;
     } else if addr >= 0x2000 && addr <= 0x3EFF {
       // 0x2000 -> 0x3EFF = nametable memory
+      let table = match cart.mirroring {
+        Mirroring::Vertical => match addr {
+          0x0000..=0x03FF => 0,
+          0x0400..=0x07FF => 1,
+          0x0800..=0x0BFF => 0,
+          0x0C00..=0x0FFF => 1,
+          _ => 0x00,
+        },
+        Mirroring::Horizontal => match addr {
+          0x0000..=0x03FF => 0,
+          0x0400..=0x07FF => 0,
+          0x0800..=0x0BFF => 1,
+          0x0C00..=0x0FFF => 1,
+          _ => 0x00,
+        },
+        Mirroring::OneScreenLo => todo!(),
+        Mirroring::OneScreenHi => todo!(),
+      };
+      let idx = (addr & 0x03FF) as usize;
+
+      self.name_tables[table][idx] = data;
       return;
     } else if addr >= 0x3F00 && addr <= 0x3FFF {
       // 0x3F00 -> 0x3FFF = palette memory

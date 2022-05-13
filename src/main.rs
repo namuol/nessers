@@ -404,10 +404,19 @@ impl UserInterface for NESDebugger {
       None => palettes,
     };
 
-    visuals = match &self.screen_img {
-      Some(img) => visuals.push(Image::new(&img).width(256 * 4).height(241 * 4)),
-      None => visuals,
-    };
+    // visuals = match &self.screen_img {
+    //   Some(img) => visuals.push(Image::new(&img).width(256 * 4).height(241 * 4)),
+    //   None => visuals,
+    // };
+
+    // Render nametables as text grid for now:
+    let mut nametable_text = vec![String::new(); 30];
+    for y in 0..30 {
+      for x in 0..32 {
+        nametable_text[y] += &format!("{:02X}", self.nes.ppu.name_tables[0][y * 32 + x]);
+      }
+    }
+    visuals = visuals.push(Text::new(&nametable_text.join("\n")).size(32));
 
     let mem = Row::new()
       // .width((window.width() / 4.0) as u32)

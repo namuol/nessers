@@ -12,7 +12,7 @@ const HEADER_START: [u8; 4] = [
 #[derive(Clone)]
 #[allow(dead_code)]
 pub struct Cart {
-  mirroring: Mirroring,
+  pub mirroring: Mirroring,
   has_ram: bool,
   has_trainer: bool,
   pub cpu_mapper: CartCpuMapper,
