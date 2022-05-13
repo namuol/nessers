@@ -232,6 +232,38 @@ impl Nes {
     result
   }
 
+  pub fn render_name_table(
+    &mut self,
+    pattern_table: &[[u8; 4]; 128 * 128],
+    name_table_idx: usize,
+  ) -> [[u8; 4]; 256 * 256] {
+    let mut result = [[0x00, 0x00, 0x00, 0xFF]; 256 * 256];
+    for y in 0..30 {
+      for x in 0..32 {
+        let tile = self.ppu.name_tables[name_table_idx][y * 32 + x];
+        // 0x00 => tile_y = 0, tile_x = 0
+        // 0x01 => tile_y = 0, tile_x = 1
+        // 0xA5 => tile_y = A, tile_x = 5
+        let tile_y = ((tile & 0xF0) >> 4) as usize;
+        let tile_x = (tile & 0x0F) as usize;
+        for row in 0..8 {
+          for col in 0..8 {
+            let pt_pixel_x = (tile_x * 8) + (7 - col);
+            let pt_pixel_y = (tile_y * 8) + row;
+            let pt_pixel_idx = (pt_pixel_y * 128 + pt_pixel_x) as usize;
+
+            let pixel_x = (x * 8) + (7 - col);
+            let pixel_y = (y * 8) + row;
+            let pixel_idx = (pixel_y * 256 + pixel_x) as usize;
+            result[pixel_idx] = pattern_table[pt_pixel_idx];
+          }
+        }
+      }
+    }
+
+    result
+  }
+
   pub fn get_color_from_palette_ram(&mut self, palette: u8, pixel: u8) -> Color {
     let idx = self.ppu_read(0x3F00 as u16 + ((palette << 2) + pixel) as u16);
     self.ppu.palette.colors[idx as usize]

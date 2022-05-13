@@ -380,7 +380,8 @@ impl BusDevice for Ppu {
 
         // Auto-increment our address for the next operation if the developer
         // so-chooses:
-        self.address += 1;
+        self.address += if self.control.increment_mode() { 32 } else { 1 };
+        // self.address += 1;
 
         Some(data)
       }
@@ -425,7 +426,7 @@ impl BusDevice for Ppu {
 
         // Auto-increment our address for the next operation if the developer
         // so-chooses:
-        self.address += 1;
+        self.address += if self.control.increment_mode() { 32 } else { 1 };
       }
       _ => {}
     }

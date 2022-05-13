@@ -56,6 +56,8 @@ struct NESDebugger {
   screen_img: Option<coffee::graphics::Image>,
   pattern_table_0_img: Option<coffee::graphics::Image>,
   pattern_table_1_img: Option<coffee::graphics::Image>,
+  name_table_0_img: Option<coffee::graphics::Image>,
+  name_table_1_img: Option<coffee::graphics::Image>,
   debug_palette: u8,
   palettes_imgs: Option<[coffee::graphics::Image; 8]>,
   nes: Nes,
@@ -124,6 +126,8 @@ impl Game for NESDebugger {
         screen_img: None,
         pattern_table_0_img: None,
         pattern_table_1_img: None,
+        name_table_0_img: None,
+        name_table_1_img: None,
         palettes_imgs: None,
         debug_palette: 0,
         nes,
@@ -187,18 +191,23 @@ impl Game for NESDebugger {
     // Update the screen image:
     self.screen_img = Some(from_screen(window.gpu(), &self.nes.ppu.screen).unwrap());
 
+    let pt0 = self.nes.render_pattern_table(0, self.debug_palette);
     // Get the pattern table image:
-    self.pattern_table_0_img = Some(
-      from_pattern_table(
+    self.pattern_table_0_img = Some(from_pattern_table(window.gpu(), &pt0).unwrap());
+    let pt1 = self.nes.render_pattern_table(1, self.debug_palette);
+    self.pattern_table_1_img = Some(from_pattern_table(window.gpu(), &pt1).unwrap());
+
+    self.name_table_0_img = Some(
+      from_name_table(
         window.gpu(),
-        &self.nes.render_pattern_table(0, self.debug_palette),
+        &self.nes.render_name_table(&pt1, 0),
       )
       .unwrap(),
     );
-    self.pattern_table_1_img = Some(
-      from_pattern_table(
+    self.name_table_1_img = Some(
+      from_name_table(
         window.gpu(),
-        &self.nes.render_pattern_table(1, self.debug_palette),
+        &self.nes.render_name_table(&pt1, 1),
       )
       .unwrap(),
     );
@@ -410,13 +419,17 @@ impl UserInterface for NESDebugger {
     // };
 
     // Render nametables as text grid for now:
-    let mut nametable_text = vec![String::new(); 30];
-    for y in 0..30 {
-      for x in 0..32 {
-        nametable_text[y] += &format!("{:02X}", self.nes.ppu.name_tables[0][y * 32 + x]);
-      }
-    }
-    visuals = visuals.push(Text::new(&nametable_text.join("\n")).size(32));
+    // let mut nametable_text = vec![String::new(); 30];
+    // for y in 0..30 {
+    //   for x in 0..32 {
+    //     nametable_text[y] += &format!("{:02X}", self.nes.ppu.name_tables[0][y * 32 + x]);
+    //   }
+    // }
+    // visuals = visuals.push(Text::new(&nametable_text.join("\n")).size(32));
+    visuals = match &self.name_table_0_img {
+      Some(img) => visuals.push(Image::new(&img).width(256 * 4).height(256 * 4)),
+      None => visuals,
+    };
 
     let mem = Row::new()
       // .width((window.width() / 4.0) as u32)
@@ -502,6 +515,29 @@ fn from_pattern_table(
       image::RgbaImage::from_raw(
         128 as u32,
         128 as u32,
+        colors.iter().flatten().cloned().collect(),
+      )
+      .unwrap(),
+    ),
+  )
+}
+
+fn from_name_table(
+  gpu: &mut Gpu,
+  pattern_table: &[[u8; 4]; 256 * 256],
+) -> Result<coffee::graphics::Image> {
+  let colors: Vec<[u8; 4]> = pattern_table
+    .iter()
+    // For now, we just plop the pixel
+    .map(|color| *color)
+    .collect();
+
+  coffee::graphics::Image::from_image(
+    gpu,
+    &image::DynamicImage::ImageRgba8(
+      image::RgbaImage::from_raw(
+        256 as u32,
+        256 as u32,
         colors.iter().flatten().cloned().collect(),
       )
       .unwrap(),
