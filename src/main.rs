@@ -61,6 +61,7 @@ struct NESDebugger {
   debug_palette: u8,
   palettes_imgs: Option<[coffee::graphics::Image; 8]>,
   nes: Nes,
+  running: bool,
 }
 
 // Fibonacci sequence program:
@@ -131,6 +132,7 @@ impl Game for NESDebugger {
         palettes_imgs: None,
         debug_palette: 0,
         nes,
+        running: false,
       };
       debugger_ui.nes.reset();
       debugger_ui.nes.step();
@@ -160,6 +162,8 @@ impl Game for NESDebugger {
           .step_with_callback(|nes| println!("{}", nes.trace()))
       } else if key == "R" {
         self.nes.reset();
+      } else if key == "P" {
+        self.running = !self.running;
       } else if key == "F" {
         self.nes.frame();
       } else if key == "D" {
@@ -250,7 +254,9 @@ impl UserInterface for NESDebugger {
     // Does nothing
   }
   fn layout(&mut self, window: &Window) -> Element<Message> {
-    self.nes.frame();
+    if self.running {
+      self.nes.frame();
+    }
     let mut stack_str = String::new();
     let start: u16 = 0;
     for page in start..=(start + (STACK_SIZE as u16 / 16) * 4) {
@@ -383,7 +389,7 @@ impl UserInterface for NESDebugger {
       .push(
         Text::new(&format!(
           "SP: {:02X} ({:03})   ADDR: {:04X}",
-          self.nes.cpu.s, self.nes.cpu.s, self.nes.ppu.address
+          self.nes.cpu.s, self.nes.cpu.s, self.nes.ppu.vram_addr
         ))
         .size(TXT_SIZE),
       )
@@ -413,10 +419,10 @@ impl UserInterface for NESDebugger {
       None => palettes,
     };
 
-    // visuals = match &self.screen_img {
-    //   Some(img) => visuals.push(Image::new(&img).width(256 * 4).height(241 * 4)),
-    //   None => visuals,
-    // };
+    visuals = match &self.screen_img {
+      Some(img) => visuals.push(Image::new(&img).width(256 * 2).height(241 * 2)),
+      None => visuals,
+    };
 
     // Render nametables as text grid for now:
     // let mut nametable_text = vec![String::new(); 30];
@@ -427,9 +433,13 @@ impl UserInterface for NESDebugger {
     // }
     // visuals = visuals.push(Text::new(&nametable_text.join("\n")).size(32));
     visuals = match &self.name_table_0_img {
-      Some(img) => visuals.push(Image::new(&img).width(256 * 4).height(256 * 4)),
+      Some(img) => visuals.push(Image::new(&img).width(256 * 2).height(256 * 2)),
       None => visuals,
     };
+    // visuals = match &self.name_table_1_img {
+    //   Some(img) => visuals.push(Image::new(&img).width(256 * 4).height(256 * 4)),
+    //   None => visuals,
+    // };
 
     let mem = Row::new()
       // .width((window.width() / 4.0) as u32)

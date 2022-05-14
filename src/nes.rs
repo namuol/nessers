@@ -50,7 +50,7 @@ impl Nes {
   }
 
   pub fn clock(&mut self) {
-    self.ppu.clock();
+    self.ppu.clock(&self.cart);
     if self.tick % 3 == 0 {
       self.addresses_hit.insert(self.cpu.pc);
       // Is there a shorthand way to run a method on a field by cloning it and
@@ -362,9 +362,6 @@ impl Bus<Cpu> for Nes {
   }
 
   fn write(&mut self, addr: u16, data: u8) {
-    if addr == 0x07A7 {
-      println!("$07A7 = {:02X} PC = {:04X}", data, self.cpu.pc);
-    }
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.cpu_mapper.write(addr, data))
       .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data, &self.cart))
