@@ -253,7 +253,7 @@ impl Ppu {
 
     let scanline = self.scanline;
     let cycle = self.cycle;
-    let cycle_in_tile = (cycle - 1) % 8;
+    let cycle_in_tile: u8 = ((cycle - 1) % 8) as u8;
     match (scanline, cycle_in_tile, cycle) {
       (0, _, 0) => {
         // Skipped on BG+odd (what does this mean?)
@@ -299,20 +299,24 @@ impl Ppu {
       }
       (-1..=239, 5 | 7, _) => {
         // Low/High BG tile byte
-        let pattern_table_base_addr = if self.control.pattern_bg_table() {
+
+        // Choose which pattern table we're drawing from:
+        let pattern_table_base_addr: u16 = if self.control.pattern_bg_table() {
           0x1000
         } else {
           0x0000
         };
-        // Offset determines low vs high:
-        let offset = if cycle_in_tile == 5 { 0 } else { 8 };
-        let addr = pattern_table_base_addr
-          + ((self.bg_next_tile_id as u16) << 4)
-          + (self.vram_addr.fine_y() as u16)
-          + offset;
+
+        let tile_y = ((self.bg_next_tile_id & 0xF0) >> 4) as u16;
+        let tile_x = (self.bg_next_tile_id & 0x0F) as u16;
+        let offset = tile_y * (16 * 16) + tile_x * 16;
+        let byte_offset = if cycle_in_tile == 5 { 0 } else { 8 };
+        let addr =
+          pattern_table_base_addr + offset + (self.vram_addr.fine_y() as u16) + byte_offset;
+
         let tile_sliver = self.ppu_read(addr, cart);
 
-        if offset == 0 {
+        if byte_offset == 0 {
           self.bg_next_tile_addr_msb = tile_sliver;
         } else {
           self.bg_next_tile_addr_lsb = tile_sliver;
@@ -390,9 +394,18 @@ impl Ppu {
         let screen_y = scanline;
         let idx = (screen_y as usize) * SCREEN_W + (screen_x as usize);
         // println!("{} {}", self.bg_next_tile_addr_msb, self.bg_next_tile_addr_lsb);
-        let pixel_color_index = ((self.bg_next_tile_addr_lsb & (1 << cycle_in_tile))
-          >> cycle_in_tile)
-          + ((self.bg_next_tile_addr_msb & (1 << cycle_in_tile)) >> cycle_in_tile);
+        let mask: u8 = 0x00 & (1 << cycle_in_tile);
+        let lsb = if self.bg_next_tile_addr_lsb & mask == 0 {
+          0
+        } else {
+          1
+        };
+        let msb = if self.bg_next_tile_addr_msb & mask == 0 {
+          0
+        } else {
+          1
+        };
+        let pixel_color_index = (lsb & 0x01) + (msb & 0x01);
         let color = self.get_color_from_palette_ram(0, pixel_color_index, cart);
         self.screen[idx][0] = color.r;
         self.screen[idx][1] = color.g;
@@ -407,8 +420,43 @@ impl Ppu {
     self.palette.colors[idx as usize]
   }
 
+  /// The PPU's Bus
+  // impl Bus<Ppu> for Nes {
+  //   fn safe_read(&self, _: u16) -> u8 {
+  //     todo!()
+  //   }
+
+  //   fn read(&mut self, addr_: u16) -> u8 {
+  //     let addr = addr_ & 0x3FFF;
+  //     match None // Hehe, using None here just for formatting purposes:
+  //       .or(self.cart.ppu_mapper.read(addr))
+  //       .or(Some(self.ppu.ppu_read(addr, &self.cart)))
+  //     {
+  //       Some(data) => data,
+  //       None => 0x00,
+  //     }
+  //   }
+
+  //   fn write(&mut self, addr_: u16, data: u8) {
+  //     let addr = addr_ & 0x3FFF;
+
+  //     None // Hehe, using None here just for formatting purposes:
+  //       .or_else(|| self.cart.ppu_mapper.write(addr, data))
+  //       .or_else(|| Some(self.ppu.ppu_write(addr, data, &self.cart)));
+  //   }
+  // }
+
   #[allow(unused_comparisons)]
-  pub fn ppu_read(&self, addr: u16, cart: &Cart) -> u8 {
+  pub fn ppu_read(&self, addr_: u16, cart: &Cart) -> u8 {
+    let addr = addr_ & 0x3FFF;
+
+    match cart.ppu_mapper.read(addr) {
+      Some(data) => {
+        return data;
+      }
+      None => {}
+    };
+
     if addr >= 0x0000 && addr <= 0x1FFF {
       // 0x0000 -> 0x1FFF = pattern memory
       return self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize];
@@ -452,7 +500,16 @@ impl Ppu {
   }
 
   #[allow(unused_comparisons)]
-  pub fn ppu_write(&mut self, addr: u16, data: u8, cart: &Cart) {
+  pub fn ppu_write(&mut self, addr_: u16, data: u8, cart: &mut Cart) {
+    let addr = addr_ & 0x3FFF;
+
+    match cart.ppu_mapper.write(addr, data) {
+      Some(()) => {
+        return;
+      }
+      None => {}
+    };
+
     if addr >= 0x0000 && addr <= 0x1FFF {
       // 0x0000 -> 0x1FFF = pattern memory
       self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize] = data;
@@ -495,6 +552,184 @@ impl Ppu {
       self.palette.map[addr as usize] = data;
       return;
     }
+  }
+
+  /// In order to render the pattern table, we need to understand how pattern
+  /// data is structured in memory.
+  ///
+  /// On the NES, each pixel of a sprite is 2 bits, allowing up to 4 unique
+  /// colors (including 0 which is always "transparent").
+  ///
+  /// A tile consists of an 8x8 grid of 2-bit pixels.
+  ///
+  /// It can help to picture a tile as something like this:
+  ///
+  /// ```
+  /// 0, 1, 2, 3, 3, 2, 1, 0
+  /// ...7 more rows like this...
+  /// ```
+  ///
+  /// You might at first assume that these pixels are stored in the following
+  /// way in memory (it'll be clear why I'm using binary notation here later):
+  ///
+  /// ```
+  /// 0,    1,    2,    3,    3,    2,    1,    0
+  /// 0b00, 0b01, 0b10, 0b11, 0b11, 0b10, 0b01, 0b00
+  /// ...7 more rows like this...
+  /// ```
+  ///
+  /// Written in _bytes_ (the unit we're used to reading one at a time) this
+  /// would look like this:
+  ///
+  /// ```
+  ///   0,1,2,3,    3,2,1,0
+  /// 0b00011011, 0b11100100
+  /// ...7 more rows like this...
+  /// ```
+  ///
+  /// So in this form, a tile would be a sequence of 64 * 2-bit pixels, or 128
+  /// bits = 16 bytes.
+  ///
+  /// This might seem fine and intuitive, until you actually go to _read_ the
+  /// pixel at a specific coordinate within the data.
+  ///
+  /// For instance, let's say we wanted to get the pixel at x=3, y=3.
+  ///
+  /// We would first need to determine which _byte_ to read since I can only
+  /// read one byte at a time.
+  ///
+  /// Then we'd need to perform some bit-operations on the byte to mask out the
+  /// bits that aren't important to us, and then _finally_ we'd need to _shift_
+  /// the bits such that only the 2-bit pixel we care about is selected.
+  ///
+  /// There's a better way: Bit-planes!
+  ///
+  /// Since our pixels are 2 bits each, we can _split_ our 8x8 2-bit grid in
+  /// half such that the 8 bytes correspond to the _least significant bit_ of
+  /// each of the 8x8=64 bits in the tile, and the next 8x8=64 bits correspond
+  /// to the _most significant bit_ of each pixel in the tile.
+  ///
+  /// Concretely, the first 8 pixels (`0, 1, 2, 3, 3, 2, 1, 0`) could be
+  /// represented like this in the pattern table memory:
+  ///
+  /// ```
+  ///       2-bit number:  0   1   2   3   3   2   1   0
+  ///      binary number: 00  01  10  11  11  10  01  00
+  /// lsb (offset by  0):  0,  1,  0,  1,  1,  0,  1,  0
+  ///                     ...rest of the lsb tile rows...
+  /// msb (offset by 64): 0 , 0 , 1 , 1 , 1 , 1 , 0 , 0
+  ///                     ...rest of the msb tile rows...
+  /// ```
+  ///
+  /// So now if we want to render a tile, we can simply read two bytes at a time
+  /// for each 8-pixel wide row of pixels, and to determine the 2-bit color of
+  /// each column, we can mask all but the last bit from each byte we read and
+  /// add them together appropriately (0b0<lsb> & 0b<msb>0, or more easily
+  /// 0x0<lsb> + 0x0<msb>) to get our 2-bit color palette index.
+  ///
+  /// Whew!
+  pub fn render_pattern_table(
+    &mut self,
+    table_number: u16,
+    palette: u8,
+    cart: &Cart,
+  ) -> [[u8; 4]; 128 * 128] {
+    let mut result = [[0x00, 0x00, 0x00, 0xFF]; 128 * 128];
+    // We want to render 16x16 tiles
+    for tile_y in 0..16 {
+      for tile_x in 0..16 {
+        // Even though a tile is 8x8, each tile is actually 16 bits "wide",
+        // because each pixel takes up 2 bits. Our tile sheet is 16 tiles wide,
+        // hence the y * (16*16).
+        let offset = tile_y * (16 * 16) + tile_x * 16;
+
+        // Each tile is 8x8 pixels
+        for row in 0..8 {
+          // A full pattern table is 4KB, or 0x1000
+
+          // Least-significant bit starts at our offset + 0 bytes:
+          let mut tile_lsb = self.ppu_read(table_number * 0x1000 + offset + row + 0, cart);
+          // Least-significant bit starts at our offset + 8 bytes; one byte per
+          // row of pixels in the tile, to skip over the LSB plane:
+          let mut tile_msb = self.ppu_read(table_number * 0x1000 + offset + row + 8, cart);
+
+          for col in 0..8 {
+            // A 2 bit number; 0, 1, or 2
+            //
+            // To compute this, we can actually just add these two bits
+            // together, since the highest the value can be is 2.
+            let pixel_color_index = (tile_lsb & 0x01) + (tile_msb & 0x01);
+            let color = self.get_color_from_palette_ram(palette, pixel_color_index, cart);
+
+            // Our pixels are laid out right-to-left in terms of
+            // bit-significance, so we _subtract_ our col number from the
+            // right-most edge of our tile:
+            let pixel_x = (tile_x * 8) + (7 - col);
+            let pixel_y = (tile_y * 8) + row;
+            let pixel_idx = (pixel_y * 128 + pixel_x) as usize;
+            result[pixel_idx][0] = color.r;
+            result[pixel_idx][1] = color.g;
+            result[pixel_idx][2] = color.b;
+
+            // For our next column, we just need to look at the _next_ bit in
+            // our least/most significant bytes. To achieve this, all we need to
+            // do is shift them right one bit:
+            tile_lsb >>= 1;
+            tile_msb >>= 1;
+          }
+        }
+      }
+    }
+
+    result
+  }
+
+  pub fn render_name_table(
+    &mut self,
+    pattern_table: &[[u8; 4]; 128 * 128],
+    name_table_idx: usize,
+  ) -> [[u8; 4]; 256 * 256] {
+    let mut result = [[0x00, 0x00, 0x00, 0xFF]; 256 * 256];
+    for y in 0..30 {
+      for x in 0..32 {
+        let tile = self.name_tables[name_table_idx][y * 32 + x];
+        // 0x00 => tile_y = 0, tile_x = 0
+        // 0x01 => tile_y = 0, tile_x = 1
+        // 0xA5 => tile_y = A, tile_x = 5
+        let tile_y = ((tile & 0xF0) >> 4) as usize;
+        let tile_x = (tile & 0x0F) as usize;
+        for row in 0..8 {
+          for col in 0..8 {
+            let pt_pixel_x = (tile_x * 8) + (7 - col);
+            let pt_pixel_y = (tile_y * 8) + row;
+            let pt_pixel_idx = (pt_pixel_y * 128 + pt_pixel_x) as usize;
+
+            let pixel_x = (x * 8) + (7 - col);
+            let pixel_y = (y * 8) + row;
+            let pixel_idx = (pixel_y * 256 + pixel_x) as usize;
+            result[pixel_idx] = pattern_table[pt_pixel_idx];
+          }
+        }
+      }
+    }
+
+    result
+  }
+
+  pub fn get_palettes(&mut self, cart: &Cart) -> [[[u8; 4]; 4]; 8] {
+    let mut result = [[[0x00, 0x00, 0x00, 0xFF]; 4]; 8];
+
+    for palette_num in 0..8 {
+      for color_num in 0..4 {
+        let color = self.get_color_from_palette_ram(palette_num, color_num, cart);
+        result[palette_num as usize][color_num as usize][0] = color.r;
+        result[palette_num as usize][color_num as usize][1] = color.g;
+        result[palette_num as usize][color_num as usize][2] = color.b;
+        result[palette_num as usize][color_num as usize][3] = 0xFF;
+      }
+    }
+
+    result
   }
 }
 
@@ -570,7 +805,7 @@ impl BusDevice for Ppu {
   }
 
   // From `cpuWrite` in https://www.youtube.com/watch?v=xdzOvpYPmGE&list=PLrOv9FMX8xJHqMvSGB_9G9nZZ_4IgteYf&index=4
-  fn write(&mut self, addr: u16, data: u8, cart: &Cart) -> Option<()> {
+  fn write(&mut self, addr: u16, data: u8, cart: &mut Cart) -> Option<()> {
     if !self.in_range(addr) {
       return None;
     }

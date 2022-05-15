@@ -4,7 +4,7 @@ pub trait BusDevice {
   fn read(&mut self, addr: u16, cart: &Cart) -> Option<u8> {
     self.safe_read(addr, cart)
   }
-  fn write(&mut self, addr: u16, data: u8, cart: &Cart) -> Option<()>;
+  fn write(&mut self, addr: u16, data: u8, cart: &mut Cart) -> Option<()>;
   fn safe_read(&self, addr: u16, cart: &Cart) -> Option<u8>;
 }
 

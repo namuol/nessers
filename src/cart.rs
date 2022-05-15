@@ -124,12 +124,9 @@ impl Cart {
 }
 
 impl CartCpuMapper {
-  pub fn safe_read(&self, addr: u16) -> Option<u8> {
+  pub fn read(&self, addr: u16) -> Option<u8> {
     let mapped_addr = (self.mapper.cpu_read)(addr, self.num_prg_banks)?;
     Some(self.prg[mapped_addr as usize])
-  }
-  pub fn read(&mut self, addr: u16) -> Option<u8> {
-    self.safe_read(addr)
   }
   pub fn write(&mut self, addr: u16, data: u8) -> Option<()> {
     let mapped_addr = (self.mapper.cpu_write)(addr, self.num_prg_banks)?;
@@ -139,12 +136,9 @@ impl CartCpuMapper {
 }
 
 impl CartPpuMapper {
-  pub fn safe_read(&self, addr: u16) -> Option<u8> {
+  pub fn read(&self, addr: u16) -> Option<u8> {
     let mapped_addr = (self.mapper.ppu_read)(addr, self.num_chr_banks)?;
     Some(self.chr[mapped_addr as usize])
-  }
-  pub fn read(&mut self, addr: u16) -> Option<u8> {
-    self.safe_read(addr)
   }
   pub fn write(&mut self, addr: u16, data: u8) -> Option<()> {
     let mapped_addr = (self.mapper.ppu_write)(addr, self.num_chr_banks)?;

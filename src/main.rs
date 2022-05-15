@@ -162,7 +162,7 @@ impl Game for NESDebugger {
           .step_with_callback(|nes| println!("{}", nes.trace()))
       } else if key == "R" {
         self.nes.reset();
-      } else if key == "P" {
+      } else if key == "Return" {
         self.running = !self.running;
       } else if key == "F" {
         self.nes.frame();
@@ -195,29 +195,29 @@ impl Game for NESDebugger {
     // Update the screen image:
     self.screen_img = Some(from_screen(window.gpu(), &self.nes.ppu.screen).unwrap());
 
-    let pt0 = self.nes.render_pattern_table(0, self.debug_palette);
+    let pt0 = self.nes.ppu.render_pattern_table(0, self.debug_palette, &self.nes.cart);
     // Get the pattern table image:
     self.pattern_table_0_img = Some(from_pattern_table(window.gpu(), &pt0).unwrap());
-    let pt1 = self.nes.render_pattern_table(1, self.debug_palette);
+    let pt1 = self.nes.ppu.render_pattern_table(1, self.debug_palette, &self.nes.cart);
     self.pattern_table_1_img = Some(from_pattern_table(window.gpu(), &pt1).unwrap());
 
     self.name_table_0_img = Some(
       from_name_table(
         window.gpu(),
-        &self.nes.render_name_table(&pt1, 0),
+        &self.nes.ppu.render_name_table(&pt1, 0),
       )
       .unwrap(),
     );
     self.name_table_1_img = Some(
       from_name_table(
         window.gpu(),
-        &self.nes.render_name_table(&pt1, 1),
+        &self.nes.ppu.render_name_table(&pt1, 1),
       )
       .unwrap(),
     );
 
     // lol
-    let palettes = self.nes.get_palettes();
+    let palettes = self.nes.ppu.get_palettes(&self.nes.cart);
     self.palettes_imgs = Some([
       from_palette(window.gpu(), &palettes[0]).unwrap(),
       from_palette(window.gpu(), &palettes[1]).unwrap(),

@@ -22,7 +22,7 @@ impl Mirror {
     master: &mut dyn RangedBusDevice,
     addr: u16,
     data: u8,
-    cart: &Cart,
+    cart: &mut Cart,
   ) -> Option<()> {
     if !self.in_range(addr) {
       return None;
@@ -64,22 +64,22 @@ mod tests {
 
   #[test]
   fn ram_mirror() {
-    let cart = Cart::from_file("src/test_fixtures/nestest.nes").unwrap();
+    let mut cart = Cart::from_file("src/test_fixtures/nestest.nes").unwrap();
     let mut ram = Ram::new(0x0000, 32 * 1024);
     let mut mirror = Mirror::new(0x0000, 2 * 32 * 1024);
-    mirror.write(&mut ram, 0x0000, 42, &cart);
+    mirror.write(&mut ram, 0x0000, 42, &mut cart);
     assert_eq!(mirror.read(&mut ram, 0x8000, &cart), Some(42));
     assert_eq!(mirror.read(&mut ram, 0x0000, &cart), Some(42));
-    mirror.write(&mut ram, 0x0001, 43, &cart);
+    mirror.write(&mut ram, 0x0001, 43, &mut cart);
     assert_eq!(mirror.read(&mut ram, 0x8001, &cart), Some(43));
     assert_eq!(mirror.read(&mut ram, 0x0001, &cart), Some(43));
-    mirror.write(&mut ram, 0x7FFF, 44, &cart);
+    mirror.write(&mut ram, 0x7FFF, 44, &mut cart);
     assert_eq!(mirror.read(&mut ram, 0xFFFF, &cart), Some(44));
     assert_eq!(mirror.read(&mut ram, 0x7FFF, &cart), Some(44));
-    mirror.write(&mut ram, 0x7FFE, 45, &cart);
+    mirror.write(&mut ram, 0x7FFE, 45, &mut cart);
     assert_eq!(mirror.read(&mut ram, 0xFFFE, &cart), Some(45));
     assert_eq!(mirror.read(&mut ram, 0x7FFE, &cart), Some(45));
-    mirror.write(&mut ram, 0x7FFA, 46, &cart);
+    mirror.write(&mut ram, 0x7FFA, 46, &mut cart);
     assert_eq!(mirror.read(&mut ram, 0xFFFA, &cart), Some(46));
     assert_eq!(mirror.read(&mut ram, 0x7FFA, &cart), Some(46));
   }
