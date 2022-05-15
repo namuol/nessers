@@ -203,7 +203,7 @@ impl LoopyRegister for u16 {
   fn set_nametable_x(self, v: bool)  -> Self { self.set(10, v) }
   fn set_nametable_y(self, v: bool)  -> Self { self.set(11, v) }
   fn set_fine_y(self, v: u8)       -> Self   { (self & (0b1_000_1_1_11111_11111)) | ((v as u16) << 12) }
-  fn set_unused(self, v: bool)       -> Self { self.set(12, v) }
+  fn set_unused(self, v: bool)       -> Self { self.set(15, v) }
 }
 
 impl Ppu {
@@ -257,9 +257,7 @@ impl Ppu {
     match (scanline, cycle_in_tile, cycle) {
       (0, _, 0) => {
         // Skipped on BG+odd (what does this mean?)
-      }
-      (_, _, 0) => {
-        // Idle
+        self.cycle = 1;
       }
       (240, _, _) => {
         // Post-render scanline; do nothing!
@@ -270,22 +268,17 @@ impl Ppu {
         if self.control.enable_nmi() {
           self.nmi = true;
         }
-        if self.mask.render_background() || self.mask.render_sprites() {
-          println!("");
-        }
+        // if self.mask.render_background() || self.mask.render_sprites() {
+        //   println!("");
+        // }
       }
-      (-1..=239, 1, 1..=256 | 321) => {
+      (-1..=239, 0, 1..=256 | 338 | 340) => {
         // NT byte
         let tile_addr = 0x2000 | (self.vram_addr & 0x0FFF);
 
         self.bg_next_tile_id = self.ppu_read(tile_addr, cart);
-        if (self.mask.render_background() || self.mask.render_sprites())
-          && self.vram_addr.fine_y() == 0
-        {
-          print!("{:02X} ", self.bg_next_tile_id);
-        }
       }
-      (-1..=239, 3, _) => {
+      (-1..=239, 2, _) => {
         // AT byte
 
         // One day I will break this down into parts that I understand:
@@ -297,32 +290,42 @@ impl Ppu {
           | ((self.vram_addr >> 2) & 0x07);
         self.bg_next_tile_attribute = self.ppu_read(attribute_addr, cart)
       }
-      (-1..=239, 5 | 7, _) => {
+      (-1..=239, 4 | 6, _) => {
         // Low/High BG tile byte
 
         // Choose which pattern table we're drawing from:
-        let pattern_table_base_addr: u16 = if self.control.pattern_bg_table() {
-          0x1000
+        // let pattern_table_base_addr: u16 = if self.control.pattern_bg_table() {
+        //   0x1000
+        // } else {
+        //   0x0000
+        // };
+
+        // let tile_y = ((self.bg_next_tile_id & 0xF0) >> 4) as u16;
+        // let tile_x = (self.bg_next_tile_id & 0x0F) as u16;
+        // let offset = tile_y * (16 * 16) + tile_x * 16;
+        // let byte_offset = if cycle_in_tile == 4 { 0 } else { 8 };
+        // let addr =
+        //   pattern_table_base_addr + offset + (self.vram_addr.fine_y() as u16) + byte_offset;
+
+        // let tile_sliver = self.ppu_read(addr, cart);
+
+        // if byte_offset == 0 {
+        //   self.bg_next_tile_addr_msb = tile_sliver;
+        // } else {
+        //   self.bg_next_tile_addr_lsb = tile_sliver;
+        // }
+
+        let base_addr = ((self.control.pattern_bg_table() as u16) * 0x1000)
+          + ((self.bg_next_tile_id as u16) << 4)
+          + (self.vram_addr.fine_y() as u16);
+
+        if cycle_in_tile == 4 {
+          self.bg_next_tile_addr_lsb = self.ppu_read(base_addr + 0, cart);
         } else {
-          0x0000
-        };
-
-        let tile_y = ((self.bg_next_tile_id & 0xF0) >> 4) as u16;
-        let tile_x = (self.bg_next_tile_id & 0x0F) as u16;
-        let offset = tile_y * (16 * 16) + tile_x * 16;
-        let byte_offset = if cycle_in_tile == 5 { 0 } else { 8 };
-        let addr =
-          pattern_table_base_addr + offset + (self.vram_addr.fine_y() as u16) + byte_offset;
-
-        let tile_sliver = self.ppu_read(addr, cart);
-
-        if byte_offset == 0 {
-          self.bg_next_tile_addr_msb = tile_sliver;
-        } else {
-          self.bg_next_tile_addr_lsb = tile_sliver;
+          self.bg_next_tile_addr_msb = self.ppu_read(base_addr + 8, cart);
         }
       }
-      (-1..=239, 0, _) => {
+      (-1..=239, 7, _) => {
         if self.mask.render_background() || self.mask.render_sprites() {
           if self.vram_addr.coarse_x() == 31 {
             self.vram_addr = self
@@ -337,6 +340,14 @@ impl Ppu {
       _ => {}
     }
 
+    // if (self.mask.render_background() || self.mask.render_sprites()) && self.vram_addr.fine_y() == 0
+    // {
+    //   print!(
+    //     "{:02X}:{:02X}{:02X} ",
+    //     self.bg_next_tile_id, self.bg_next_tile_addr_lsb, self.bg_next_tile_addr_msb
+    //   );
+    // }
+
     if scanline == -1 && cycle == 1 {
       // Clear:
       // - VBlank
@@ -350,12 +361,36 @@ impl Ppu {
       // tiles are getting shifted somehow:
 
       if cycle == 256 {
-        self.vram_addr = self.vram_addr.set_fine_y((self.vram_addr.fine_y() + 1) % 8);
-        if self.vram_addr.fine_y() == 0 {
-          println!("");
-          self.vram_addr = self
-            .vram_addr
-            .set_coarse_y((self.vram_addr.coarse_y() + 1) % 30);
+        if self.vram_addr.fine_y() < 7 {
+          self.vram_addr = self.vram_addr.set_fine_y(self.vram_addr.fine_y() + 1);
+        } else {
+          // If we cross 8 scanlines we're entering the next tile vertically, so
+          // reset the fine_y offset:
+          self.vram_addr = self.vram_addr.set_fine_y(0);
+
+          // ...and determine what our coarse y should be, accounting for the
+          // need to swap nametable space and to avoid entering the attribute
+          // rows of our nametable (rows 30 and 31; zero-indexed):
+          match self.vram_addr.coarse_y() {
+            29 => {
+              // Our nametables have a height of 30 (0 thru 29), so if coarse y
+              // is 29 it means we need to swap the vertical nametables and
+              // reset coarse y:
+              self.vram_addr = self
+                .vram_addr
+                .set_coarse_y(0)
+                .set_nametable_y(!self.vram_addr.nametable_y());
+            }
+            31 => {
+              // If rendering is enabled and we're entering attribute memory
+              // space, wrap around to the top:
+              self.vram_addr = self.vram_addr.set_coarse_y(0);
+            }
+            _ => {
+              // Otherwise just increment coarse y as usual:
+              self.vram_addr = self.vram_addr.set_coarse_y(self.vram_addr.coarse_y() + 1);
+            }
+          }
         }
       }
 
@@ -379,11 +414,10 @@ impl Ppu {
     if self.cycle >= 341 {
       self.scanline += 1;
       self.cycle = 0;
-    }
-
-    if self.scanline >= 261 {
-      self.scanline = -1;
-      self.frame_complete = true;
+      if self.scanline >= 261 {
+        self.scanline = -1;
+        self.frame_complete = true;
+      }
     }
 
     // Finally, let's draw our pixel at (scanline, cycle)
@@ -394,18 +428,18 @@ impl Ppu {
         let screen_y = scanline;
         let idx = (screen_y as usize) * SCREEN_W + (screen_x as usize);
         // println!("{} {}", self.bg_next_tile_addr_msb, self.bg_next_tile_addr_lsb);
-        let mask: u8 = 0x00 & (1 << cycle_in_tile);
-        let lsb = if self.bg_next_tile_addr_lsb & mask == 0 {
+        let mask: u8 = 1 << cycle_in_tile;
+        let lsb = if (self.bg_next_tile_addr_lsb & mask) == 0 {
           0
         } else {
           1
         };
-        let msb = if self.bg_next_tile_addr_msb & mask == 0 {
+        let msb = if (self.bg_next_tile_addr_msb & mask) == 0 {
           0
         } else {
           1
         };
-        let pixel_color_index = (lsb & 0x01) + (msb & 0x01);
+        let pixel_color_index = lsb + msb;
         let color = self.get_color_from_palette_ram(0, pixel_color_index, cart);
         self.screen[idx][0] = color.r;
         self.screen[idx][1] = color.g;
@@ -419,32 +453,6 @@ impl Ppu {
     let idx = self.ppu_read(0x3F00 as u16 + ((palette << 2) + pixel) as u16, cart);
     self.palette.colors[idx as usize]
   }
-
-  /// The PPU's Bus
-  // impl Bus<Ppu> for Nes {
-  //   fn safe_read(&self, _: u16) -> u8 {
-  //     todo!()
-  //   }
-
-  //   fn read(&mut self, addr_: u16) -> u8 {
-  //     let addr = addr_ & 0x3FFF;
-  //     match None // Hehe, using None here just for formatting purposes:
-  //       .or(self.cart.ppu_mapper.read(addr))
-  //       .or(Some(self.ppu.ppu_read(addr, &self.cart)))
-  //     {
-  //       Some(data) => data,
-  //       None => 0x00,
-  //     }
-  //   }
-
-  //   fn write(&mut self, addr_: u16, data: u8) {
-  //     let addr = addr_ & 0x3FFF;
-
-  //     None // Hehe, using None here just for formatting purposes:
-  //       .or_else(|| self.cart.ppu_mapper.write(addr, data))
-  //       .or_else(|| Some(self.ppu.ppu_write(addr, data, &self.cart)));
-  //   }
-  // }
 
   #[allow(unused_comparisons)]
   pub fn ppu_read(&self, addr_: u16, cart: &Cart) -> u8 {
@@ -915,7 +923,7 @@ mod tests {
   use crate::ppu::LoopyRegister;
   use pretty_assertions::assert_eq;
 
-  fn assert_eq_binary(left: u8, right: u8, msg: &str) {
+  fn assert_eq_binary<T: std::fmt::Binary>(left: T, right: T, msg: &str) {
     assert_eq!(format!("{:08b}", left), format!("{:08b}", right), "{}", msg);
   }
 
@@ -939,14 +947,14 @@ mod tests {
     assert_eq!((0b1_111_1_1_11111_11111 as u16).unused(), true, "unused with stuff");
     assert_eq!((0b0_111_1_1_11111_11111 as u16).unused(), false, "unused with stuff");
 
-    assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_coarse_x(0b111_10101).coarse_x(), 0b000_10101, "coarse_x with stuff 2");
-    assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_coarse_y(0b111_10101).coarse_y(), 0b000_10101, "coarse_y with stuff 2");
-    assert_eq!((0b1_111_1_1_11111_11111 as u16).set_nametable_x(true).nametable_x(), true, "nametable_x with stuff 2");
-    assert_eq!((0b1_111_1_1_11111_11111 as u16).set_nametable_x(false).nametable_x(), false, "nametable_x with stuff 2");
-    assert_eq!((0b1_111_1_1_11111_11111 as u16).set_nametable_y(true).nametable_y(), true, "nametable_y with stuff 2");
-    assert_eq!((0b1_111_1_1_11111_11111 as u16).set_nametable_y(false).nametable_y(), false, "nametable_y with stuff 2");
-    assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_fine_y(0b0000_0000).fine_y(), 0b0000_0000, "fine_y with stuff 2");
-    assert_eq!((0b1_111_1_1_11111_11111 as u16).set_unused(true).unused(), true, "unused with stuff 2");
-    assert_eq!((0b0_111_1_1_11111_11111 as u16).set_unused(false).unused(), false, "unused with stuff 2");
+    assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_coarse_x(0b111_10101), 0b1_111_1_1_11111_10101, "coarse_x with stuff 2");
+    assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_coarse_y(0b111_10101), 0b1_111_1_1_10101_11111, "coarse_y with stuff 2");
+    assert_eq_binary((0b1_111_1_0_11111_11111 as u16).set_nametable_x(true), 0b1_111_1_1_11111_11111, "nametable_x with stuff 2");
+    assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_nametable_x(false), 0b1_111_1_0_11111_11111, "nametable_x with stuff 2");
+    assert_eq_binary((0b1_111_0_1_11111_11111 as u16).set_nametable_y(true), 0b1_111_1_1_11111_11111, "nametable_y with stuff 2");
+    assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_nametable_y(false), 0b1_111_0_1_11111_11111, "nametable_y with stuff 2");
+    assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_fine_y(0b00000_101), 0b1_101_1_1_11111_11111, "fine_y with stuff 2");
+    assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_unused(true), 0b1_111_1_1_11111_11111, "unused with stuff 2");
+    assert_eq_binary((0b0_111_1_1_11111_11111 as u16).set_unused(false), 0b0_111_1_1_11111_11111, "unused with stuff 2");
   }
 }

@@ -2905,7 +2905,7 @@ mod tests {
   impl Bus<Cpu> for DeviceList {
     fn write(&mut self, addr: u16, data: u8) {
       for i in 0..self.devices.len() {
-        match self.devices[i].write(addr, data, &self.cart) {
+        match self.devices[i].write(addr, data, &mut self.cart) {
           None => (),
           Some(_) => {
             break;
@@ -2950,7 +2950,7 @@ mod tests {
 
   struct DummyBus {}
   impl BusDevice for DummyBus {
-    fn write(&mut self, _: u16, _: u8, cart: &Cart) -> std::option::Option<()> {
+    fn write(&mut self, _: u16, _: u8, cart: &mut Cart) -> std::option::Option<()> {
       None
     }
     fn safe_read(&self, _: u16, cart: &Cart) -> std::option::Option<u8> {
