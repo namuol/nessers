@@ -40,6 +40,11 @@ pub struct Ppu {
   bg_next_tile_attribute: u8,
   bg_next_tile_addr_lsb: u8,
   bg_next_tile_addr_msb: u8,
+
+  bg_shifter_pattern_lo: u16,
+  bg_shifter_pattern_hi: u16,
+  bg_shifter_attrib_lo: u16,
+  bg_shifter_attrib_hi: u16,
 }
 
 pub trait StatusRegister {
@@ -236,7 +241,94 @@ impl Ppu {
       bg_next_tile_attribute: 0x00,
       bg_next_tile_addr_lsb: 0x00,
       bg_next_tile_addr_msb: 0x00,
+
+      bg_shifter_pattern_lo: 0x0000,
+      bg_shifter_pattern_hi: 0x0000,
+      bg_shifter_attrib_lo: 0x0000,
+      bg_shifter_attrib_hi: 0x0000,
     }
+  }
+
+  fn load_shift_registers(&mut self) {
+    // Load shift registers:
+    self.bg_shifter_pattern_lo =
+      (self.bg_shifter_pattern_lo & 0xFF00) | (self.bg_next_tile_addr_lsb as u16);
+    self.bg_shifter_pattern_hi =
+      (self.bg_shifter_pattern_hi & 0xFF00) | (self.bg_next_tile_addr_msb as u16);
+
+    self.bg_shifter_attrib_lo = (self.bg_shifter_attrib_lo & 0xFF00)
+      | (if (self.bg_next_tile_attribute & 0b01) != 0 {
+        0xFF
+      } else {
+        0x00
+      });
+    self.bg_shifter_attrib_hi = (self.bg_shifter_attrib_hi & 0xFF00)
+      | (if (self.bg_next_tile_attribute & 0b10) != 0 {
+        0xFF
+      } else {
+        0x00
+      });
+  }
+
+  fn increment_scroll_y(&mut self) {
+    if !(self.mask.render_background() || self.mask.render_sprites()) {
+      return;
+    }
+
+    if self.vram_addr.fine_y() < 7 {
+      self.vram_addr = self.vram_addr.set_fine_y(self.vram_addr.fine_y() + 1);
+    } else {
+      // If we cross 8 scanlines we're entering the next tile vertically, so
+      // reset the fine_y offset:
+      self.vram_addr = self.vram_addr.set_fine_y(0);
+
+      // ...and determine what our coarse y should be, accounting for the
+      // need to swap nametable space and to avoid entering the attribute
+      // rows of our nametable (rows 30 and 31; zero-indexed):
+      match self.vram_addr.coarse_y() {
+        29 => {
+          // Our nametables have a height of 30 (0 thru 29), so if coarse y
+          // is 29 it means we need to swap the vertical nametables and
+          // reset coarse y:
+          self.vram_addr = self
+            .vram_addr
+            .set_coarse_y(0)
+            .set_nametable_y(!self.vram_addr.nametable_y());
+        }
+        31 => {
+          // If rendering is enabled and we're entering attribute memory
+          // space, wrap around to the top:
+          self.vram_addr = self.vram_addr.set_coarse_y(0);
+        }
+        _ => {
+          // Otherwise just increment coarse y as usual:
+          self.vram_addr = self.vram_addr.set_coarse_y(self.vram_addr.coarse_y() + 1);
+        }
+      }
+    }
+  }
+
+  fn transfer_address_x(&mut self) {
+    if !(self.mask.render_background() || self.mask.render_sprites()) {
+      return;
+    }
+
+    self.vram_addr = self
+      .vram_addr
+      .set_nametable_x(self.tram_addr.nametable_x())
+      .set_coarse_x(self.tram_addr.coarse_x());
+  }
+
+  fn transfer_address_y(&mut self) {
+    if !(self.mask.render_background() || self.mask.render_sprites()) {
+      return;
+    }
+
+    self.vram_addr = self
+      .vram_addr
+      .set_nametable_y(self.tram_addr.nametable_y())
+      .set_coarse_y(self.tram_addr.coarse_y())
+      .set_fine_y(self.tram_addr.fine_y());
   }
 
   pub fn clock(&mut self, cart: &Cart) {
@@ -250,208 +342,168 @@ impl Ppu {
     // Note: The 0th scanline corresponds to the -1th scanline in our code.
     //
     // Does the 0th "dot" correspond to our -1th cycle or is this also 0?
+    let cycle_in_tile = (self.cycle - 1).rem_euclid(8);
 
-    let scanline = self.scanline;
-    let cycle = self.cycle;
-    let cycle_in_tile: u8 = ((cycle - 1) % 8) as u8;
-    match (scanline, cycle_in_tile, cycle) {
-      (0, _, 0) => {
-        // Skipped on BG+odd (what does this mean?)
+    if self.scanline >= -1 && self.scanline < 240 {
+      if self.scanline == 0 && self.cycle == 0 {
+        // "Odd frame"
         self.cycle = 1;
       }
-      (240, _, _) => {
-        // Post-render scanline; do nothing!
+
+      if self.scanline == -1 && self.cycle == 1 {
+        // Clear:
+        // - VBlank
+        self.status = self.status.set_vblank(false);
+        // - Sprite 0: TODO
+        // - Overflow: TODO
       }
-      (241, _, 1) => {
-        // Set VBlank flag
+
+      if (self.cycle >= 2 && self.cycle < 258) || (self.cycle >= 321 && self.cycle < 338) {
+        if self.mask.render_background() {
+          // Shifting background tile pattern row
+          self.bg_shifter_pattern_lo <<= 1;
+          self.bg_shifter_pattern_hi <<= 1;
+
+          self.bg_shifter_attrib_lo <<= 1;
+          self.bg_shifter_attrib_hi <<= 1;
+        }
+
+        match cycle_in_tile {
+          // (0, _, 0) => {
+          //   // Skipped on BG+odd (what does this mean?)
+          //   self.cycle = 1;
+          // }
+          // (240, _, _) => {
+          //   // Post-render scanline; do nothing!
+          // }
+          0 => {
+            self.load_shift_registers();
+
+            // NT byte
+            let tile_addr = 0x2000 | (self.vram_addr & 0x0FFF);
+            self.bg_next_tile_id = self.ppu_read(tile_addr, cart);
+          }
+          2 => {
+            // AT byte
+
+            // One day I will break this down into parts that I understand:
+            //
+            // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
+            let attribute_addr = 0x23C0
+              | (self.vram_addr & 0x0C00)
+              | ((self.vram_addr >> 4) & 0x38)
+              | ((self.vram_addr >> 2) & 0x07);
+            self.bg_next_tile_attribute = self.ppu_read(attribute_addr, cart);
+
+            if (self.vram_addr.coarse_y() & 0x02) != 0 {
+              self.bg_next_tile_attribute >>= 4;
+            }
+            if (self.vram_addr.coarse_x() & 0x02) != 0 {
+              self.bg_next_tile_attribute >>= 2;
+            }
+            self.bg_next_tile_attribute &= 0x03;
+          }
+          4 | 6 => {
+            // Low/High BG tile byte
+            let base_addr = ((self.control.pattern_bg_table() as u16) * 0x1000)
+              + ((self.bg_next_tile_id as u16) << 4)
+              + (self.vram_addr.fine_y() as u16);
+
+            if cycle_in_tile == 4 {
+              self.bg_next_tile_addr_lsb = self.ppu_read(base_addr + 0, cart);
+            } else {
+              self.bg_next_tile_addr_msb = self.ppu_read(base_addr + 8, cart);
+            }
+          }
+          7 => {
+            if self.mask.render_background() || self.mask.render_sprites() {
+              if self.vram_addr.coarse_x() == 31 {
+                self.vram_addr = self
+                  .vram_addr
+                  .set_coarse_x(0)
+                  .set_nametable_x(!self.vram_addr.nametable_x());
+              } else {
+                self.vram_addr = self.vram_addr.set_coarse_x(self.vram_addr.coarse_x() + 1);
+              }
+            }
+          }
+          _ => {}
+        }
+      }
+
+      if self.cycle == 256 {
+        self.increment_scroll_y();
+      }
+
+      if self.cycle == 257 {
+        self.load_shift_registers();
+        self.transfer_address_x();
+      }
+
+      // Superfluous reads of tile id at end of scanline
+      if self.cycle == 338 || self.cycle == 340 {
+        let tile_addr = 0x2000 | (self.vram_addr & 0x0FFF);
+        self.bg_next_tile_id = self.ppu_read(tile_addr, cart);
+      }
+
+      if self.scanline == -1 && self.cycle >= 280 && self.cycle <= 304 {
+        self.transfer_address_y();
+      }
+    }
+
+    if self.scanline == 240 {
+      // Post-render scanline; do nothing
+    }
+
+    // VBlank period:
+    if self.scanline >= 241 && self.scanline < 261 {
+      // Start of VBlank:
+      if self.scanline == 241 && self.cycle == 1 {
         self.status = self.status.set_vblank(true);
         if self.control.enable_nmi() {
           self.nmi = true;
         }
-        // if self.mask.render_background() || self.mask.render_sprites() {
-        //   println!("");
-        // }
       }
-      (-1..=239, 0, 1..=256 | 338 | 340) => {
-        // NT byte
-        let tile_addr = 0x2000 | (self.vram_addr & 0x0FFF);
-
-        self.bg_next_tile_id = self.ppu_read(tile_addr, cart);
-      }
-      (-1..=239, 2, _) => {
-        // AT byte
-
-        // One day I will break this down into parts that I understand:
-        //
-        // https://www.nesdev.org/wiki/PPU_scrolling#Tile_and_attribute_fetching
-        let attribute_addr = 0x23C0
-          | (self.vram_addr & 0x0C00)
-          | ((self.vram_addr >> 4) & 0x38)
-          | ((self.vram_addr >> 2) & 0x07);
-        self.bg_next_tile_attribute = self.ppu_read(attribute_addr, cart)
-      }
-      (-1..=239, 4 | 6, _) => {
-        // Low/High BG tile byte
-
-        // Choose which pattern table we're drawing from:
-        // let pattern_table_base_addr: u16 = if self.control.pattern_bg_table() {
-        //   0x1000
-        // } else {
-        //   0x0000
-        // };
-
-        // let tile_y = ((self.bg_next_tile_id & 0xF0) >> 4) as u16;
-        // let tile_x = (self.bg_next_tile_id & 0x0F) as u16;
-        // let offset = tile_y * (16 * 16) + tile_x * 16;
-        // let byte_offset = if cycle_in_tile == 4 { 0 } else { 8 };
-        // let addr =
-        //   pattern_table_base_addr + offset + (self.vram_addr.fine_y() as u16) + byte_offset;
-
-        // let tile_sliver = self.ppu_read(addr, cart);
-
-        // if byte_offset == 0 {
-        //   self.bg_next_tile_addr_msb = tile_sliver;
-        // } else {
-        //   self.bg_next_tile_addr_lsb = tile_sliver;
-        // }
-
-        let base_addr = ((self.control.pattern_bg_table() as u16) * 0x1000)
-          + ((self.bg_next_tile_id as u16) << 4)
-          + (self.vram_addr.fine_y() as u16);
-
-        if cycle_in_tile == 4 {
-          self.bg_next_tile_addr_lsb = self.ppu_read(base_addr + 0, cart);
-        } else {
-          self.bg_next_tile_addr_msb = self.ppu_read(base_addr + 8, cart);
-        }
-      }
-      (-1..=239, 7, _) => {
-        if self.mask.render_background() || self.mask.render_sprites() {
-          if self.vram_addr.coarse_x() == 31 {
-            self.vram_addr = self
-              .vram_addr
-              .set_coarse_x(0)
-              .set_nametable_x(!self.vram_addr.nametable_x());
-          } else {
-            self.vram_addr = self.vram_addr.set_coarse_x(self.vram_addr.coarse_x() + 1);
-          }
-        }
-      }
-      _ => {}
     }
 
-    // if (self.mask.render_background() || self.mask.render_sprites()) && self.vram_addr.fine_y() == 0
-    // {
-    //   print!(
-    //     "{:02X}:{:02X}{:02X} ",
-    //     self.bg_next_tile_id, self.bg_next_tile_addr_lsb, self.bg_next_tile_addr_msb
-    //   );
-    // }
+    if self.cycle >= 1 && self.cycle <= 256 && self.scanline >= 0 && self.scanline <= 239 {
+      let mut bg_pixel: u8 = 0x00;
+      let mut bg_palette: u8 = 0x00;
+      if self.mask.render_background() {
+        let bit_mux: u16 = 0x8000 >> self.fine_x;
+        let p0_pixel = ((self.bg_shifter_pattern_lo & bit_mux) > 0) as u8;
+        let p1_pixel = ((self.bg_shifter_pattern_hi & bit_mux) > 0) as u8;
+        bg_pixel = (p1_pixel << 1) | p0_pixel;
 
-    if scanline == -1 && cycle == 1 {
-      // Clear:
-      // - VBlank
-      self.status = self.status.set_vblank(false);
-      // - Sprite 0
-      // - Overflow
-    }
-
-    if self.mask.render_background() || self.mask.render_sprites() {
-      // Something here causes corruption in donkey kong nametable; looks like
-      // tiles are getting shifted somehow:
-
-      if cycle == 256 {
-        if self.vram_addr.fine_y() < 7 {
-          self.vram_addr = self.vram_addr.set_fine_y(self.vram_addr.fine_y() + 1);
-        } else {
-          // If we cross 8 scanlines we're entering the next tile vertically, so
-          // reset the fine_y offset:
-          self.vram_addr = self.vram_addr.set_fine_y(0);
-
-          // ...and determine what our coarse y should be, accounting for the
-          // need to swap nametable space and to avoid entering the attribute
-          // rows of our nametable (rows 30 and 31; zero-indexed):
-          match self.vram_addr.coarse_y() {
-            29 => {
-              // Our nametables have a height of 30 (0 thru 29), so if coarse y
-              // is 29 it means we need to swap the vertical nametables and
-              // reset coarse y:
-              self.vram_addr = self
-                .vram_addr
-                .set_coarse_y(0)
-                .set_nametable_y(!self.vram_addr.nametable_y());
-            }
-            31 => {
-              // If rendering is enabled and we're entering attribute memory
-              // space, wrap around to the top:
-              self.vram_addr = self.vram_addr.set_coarse_y(0);
-            }
-            _ => {
-              // Otherwise just increment coarse y as usual:
-              self.vram_addr = self.vram_addr.set_coarse_y(self.vram_addr.coarse_y() + 1);
-            }
-          }
-        }
+        let bg_pal0 = ((self.bg_shifter_attrib_lo & bit_mux) > 0) as u8;
+        let bg_pal1 = ((self.bg_shifter_attrib_hi & bit_mux) > 0) as u8;
+        bg_palette = (bg_pal1 << 1) | bg_pal0;
       }
 
-      if cycle == 257 {
-        self.vram_addr = self
-          .vram_addr
-          .set_nametable_x(self.tram_addr.nametable_x())
-          .set_coarse_x(self.tram_addr.coarse_x());
-      }
-
-      if scanline == -1 && cycle >= 280 && cycle <= 304 {
-        self.vram_addr = self
-          .vram_addr
-          .set_nametable_y(self.tram_addr.nametable_y())
-          .set_coarse_y(self.tram_addr.coarse_y());
-      }
+      // Finally, let's draw our pixel at (scanline, cycle)
+      let screen_x = self.cycle - 1;
+      let screen_y = self.scanline;
+      let idx = (screen_y as usize) * SCREEN_W + (screen_x as usize);
+      let color = self.get_color_from_palette_ram(bg_palette, bg_pixel, cart);
+      self.screen[idx][0] = color.r;
+      self.screen[idx][1] = color.g;
+      self.screen[idx][2] = color.b;
     }
 
     self.cycle += 1;
-
     if self.cycle >= 341 {
-      self.scanline += 1;
       self.cycle = 0;
+      self.scanline += 1;
       if self.scanline >= 261 {
         self.scanline = -1;
         self.frame_complete = true;
       }
     }
-
-    // Finally, let's draw our pixel at (scanline, cycle)
-
-    match (scanline, cycle) {
-      (0..=239, 1..=256) => {
-        let screen_x = cycle - 1;
-        let screen_y = scanline;
-        let idx = (screen_y as usize) * SCREEN_W + (screen_x as usize);
-        // println!("{} {}", self.bg_next_tile_addr_msb, self.bg_next_tile_addr_lsb);
-        let mask: u8 = 1 << cycle_in_tile;
-        let lsb = if (self.bg_next_tile_addr_lsb & mask) == 0 {
-          0
-        } else {
-          1
-        };
-        let msb = if (self.bg_next_tile_addr_msb & mask) == 0 {
-          0
-        } else {
-          1
-        };
-        let pixel_color_index = lsb + msb;
-        let color = self.get_color_from_palette_ram(0, pixel_color_index, cart);
-        self.screen[idx][0] = color.r;
-        self.screen[idx][1] = color.g;
-        self.screen[idx][2] = color.b;
-      }
-      _ => {}
-    }
   }
 
   fn get_color_from_palette_ram(&self, palette: u8, pixel: u8, cart: &Cart) -> Color {
     let idx = self.ppu_read(0x3F00 as u16 + ((palette << 2) + pixel) as u16, cart);
-    self.palette.colors[idx as usize]
+    self.palette.colors[(idx % 64) as usize]
   }
 
   #[allow(unused_comparisons)]
@@ -851,7 +903,7 @@ impl BusDevice for Ppu {
           // w:                  <- 1
           // ```
           self.fine_x = data & 0b0000_0111;
-          self.tram_addr.set_coarse_x(data >> 3);
+          self.tram_addr = self.tram_addr.set_coarse_x(data >> 3);
           self.address_latch = true;
         } else {
           // https://www.nesdev.org/wiki/PPU_scrolling#$2005_second_write_(w_is_1)
@@ -860,8 +912,10 @@ impl BusDevice for Ppu {
           // t: FGH..AB CDE..... <- d: ABCDEFGH
           // w:                  <- 0
           // ```
-          self.tram_addr.set_fine_y(data & 0b0000_0111);
-          self.tram_addr.set_coarse_y(data >> 3);
+          self.tram_addr = self
+            .tram_addr
+            .set_fine_y(data & 0b0000_0111)
+            .set_coarse_y(data >> 3);
           self.address_latch = false;
         }
       }

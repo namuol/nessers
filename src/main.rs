@@ -420,7 +420,7 @@ impl UserInterface for NESDebugger {
     };
 
     visuals = match &self.screen_img {
-      Some(img) => visuals.push(Image::new(&img).width(256 * 2).height(241 * 2)),
+      Some(img) => visuals.push(Image::new(&img).width(256 * 2).height(240 * 2)),
       None => visuals,
     };
 
