@@ -188,7 +188,7 @@ mod tests {
       Ok(cart) => {
         assert_eq!(cart.cpu_mapper.prg, vec![0x42; 16 * 1024]);
         assert_eq!(cart.ppu_mapper.chr, vec![0x43; 8 * 1024]);
-        assert_eq!(cart.mirroring, Mirroring::Horizontal);
+        assert_eq!(cart.mirroring, Mirroring::Vertical);
         assert_eq!(cart.has_ram, true);
         assert_eq!(cart.has_trainer, false);
       }

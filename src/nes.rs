@@ -301,8 +301,6 @@ mod tests {
   use crate::{
     cart::{FLAG_HAS_RAM, FLAG_MIRRORING},
     palette::Color,
-    ppu::StatusRegister,
-    trace::trace,
   };
   use pretty_assertions::assert_eq;
   use std::{

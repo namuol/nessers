@@ -2950,10 +2950,10 @@ mod tests {
 
   struct DummyBus {}
   impl BusDevice for DummyBus {
-    fn write(&mut self, _: u16, _: u8, cart: &mut Cart) -> std::option::Option<()> {
+    fn write(&mut self, _: u16, _: u8, _cart: &mut Cart) -> std::option::Option<()> {
       None
     }
-    fn safe_read(&self, _: u16, cart: &Cart) -> std::option::Option<u8> {
+    fn safe_read(&self, _: u16, _cart: &Cart) -> std::option::Option<u8> {
       None
     }
   }

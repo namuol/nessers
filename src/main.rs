@@ -67,6 +67,7 @@ struct NESDebugger {
   palettes_imgs: Option<[coffee::graphics::Image; 8]>,
   nes: Nes,
   running: bool,
+  debug_with_pt1: bool,
 }
 
 // Fibonacci sequence program:
@@ -143,6 +144,7 @@ impl Game for NESDebugger {
         debug_palette: 0,
         nes,
         running: false,
+        debug_with_pt1: true,
       };
       debugger_ui.nes.reset();
       debugger_ui.nes.step();
@@ -212,6 +214,10 @@ impl Game for NESDebugger {
           self.debug_palette = (self.debug_palette + 1) % 8;
         }
 
+        LBracket => {
+          self.debug_with_pt1 = !self.debug_with_pt1;
+        }
+
         N => {
           // Render nametables as text grid for now:
           let mut nametable_text = vec![String::new(); 30];
@@ -279,10 +285,12 @@ impl Game for NESDebugger {
       .render_pattern_table(1, self.debug_palette, &self.nes.cart);
     self.pattern_table_1_img = Some(from_pattern_table(window.gpu(), &pt1).unwrap());
 
+    let pt = if self.debug_with_pt1 { &pt1 } else { &pt0 };
+
     self.name_table_0_img =
-      Some(from_name_table(window.gpu(), &self.nes.ppu.render_name_table(&pt1, 0)).unwrap());
+      Some(from_name_table(window.gpu(), &self.nes.ppu.render_name_table(&pt, 0)).unwrap());
     self.name_table_1_img =
-      Some(from_name_table(window.gpu(), &self.nes.ppu.render_name_table(&pt1, 1)).unwrap());
+      Some(from_name_table(window.gpu(), &self.nes.ppu.render_name_table(&pt, 1)).unwrap());
 
     // lol
     let palettes = self.nes.ppu.get_palettes(&self.nes.cart);
