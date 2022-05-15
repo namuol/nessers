@@ -1432,6 +1432,7 @@ dependencies = [
  "pretty_assertions",
  "rand 0.7.3",
  "serde",
+ "winit",
 ]
 
 [[package]]

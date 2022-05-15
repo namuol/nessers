@@ -15,7 +15,7 @@ pub struct DisassembledOperation {
 pub fn disassemble(nes: &Nes, start: u16, length: u16) -> Vec<DisassembledOperation> {
   let mut output: Vec<DisassembledOperation> = vec![];
   let mut pc = start;
-  while pc < start + length {
+  while pc < start.wrapping_add(length) {
     let trace = trace(nes, pc);
     pc += trace.data.len() as u16;
     output.push(trace.into());

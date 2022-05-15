@@ -28,7 +28,7 @@ impl BusDeviceRange for Ram {
 }
 
 impl BusDevice for Ram {
-  fn write(&mut self, addr: u16, data: u8, cart: &mut Cart) -> Option<()> {
+  fn write(&mut self, addr: u16, data: u8, _cart: &mut Cart) -> Option<()> {
     if !self.in_range(addr) {
       return None;
     }
@@ -37,7 +37,7 @@ impl BusDevice for Ram {
     Some(())
   }
 
-  fn safe_read(&self, addr: u16, cart: &Cart) -> Option<u8> {
+  fn safe_read(&self, addr: u16, _cart: &Cart) -> Option<u8> {
     if !self.in_range(addr) {
       return None;
     }

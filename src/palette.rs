@@ -61,7 +61,7 @@ impl BusDeviceRange for Palette {
 }
 
 impl BusDevice for Palette {
-  fn safe_read(&self, addr: u16, cart: &Cart) -> Option<u8> {
+  fn safe_read(&self, addr: u16, _cart: &Cart) -> Option<u8> {
     if !self.in_range(addr) {
       return None;
     }
@@ -69,7 +69,7 @@ impl BusDevice for Palette {
     Some(self.map[addr_to_palette_map_index(addr)])
   }
 
-  fn write(&mut self, addr: u16, data: u8, cart: &mut Cart) -> Option<()> {
+  fn write(&mut self, addr: u16, data: u8, _cart: &mut Cart) -> Option<()> {
     if !self.in_range(addr) {
       return None;
     }

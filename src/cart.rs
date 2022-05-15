@@ -30,14 +30,12 @@ pub enum Mirroring {
 pub struct CartCpuMapper {
   num_prg_banks: usize,
   prg: Vec<u8>,
-  mapper_code: u8,
   mapper: Mapper,
 }
 #[derive(Clone)]
 pub struct CartPpuMapper {
   num_chr_banks: usize,
   chr: Vec<u8>,
-  mapper_code: u8,
   mapper: Mapper,
 }
 
@@ -103,13 +101,11 @@ impl Cart {
       has_trainer,
       mapper_code,
       ppu_mapper: CartPpuMapper {
-        mapper_code,
         mapper: MAPPERS[mapper_code as usize].clone(),
         num_chr_banks,
         chr: data[chr_start..chr_start + chr_size].to_vec(),
       },
       cpu_mapper: CartCpuMapper {
-        mapper_code,
         mapper: MAPPERS[mapper_code as usize].clone(),
         num_prg_banks,
         prg: data[prg_start..prg_start + prg_size].to_vec(),
@@ -195,8 +191,6 @@ mod tests {
         assert_eq!(cart.mirroring, Mirroring::Horizontal);
         assert_eq!(cart.has_ram, true);
         assert_eq!(cart.has_trainer, false);
-        assert_eq!(cart.ppu_mapper.mapper_code, 0x11);
-        assert_eq!(cart.cpu_mapper.mapper_code, 0x11);
       }
       Err(msg) => {
         panic!(

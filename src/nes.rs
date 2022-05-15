@@ -5,13 +5,13 @@ use crate::cpu6502::Cpu;
 use crate::cpu6502::StatusFlag::*;
 use crate::disassemble::DisassembledOperation;
 use crate::mirror::Mirror;
-use crate::palette::{Color, Palette};
+use crate::palette::Palette;
+use crate::peripherals::Peripherals;
 use crate::ppu::Ppu;
 use crate::ram::Ram;
 use crate::trace::{trace, Trace};
 use std::collections::HashSet;
 
-#[derive(Clone)]
 pub struct Nes {
   pub cpu: Cpu,
   pub ppu: Ppu,
@@ -21,6 +21,8 @@ pub struct Nes {
   ppu_registers_mirror: Mirror,
   pub cart: Cart,
   pub addresses_hit: HashSet<u16>,
+  pub peripherals: Peripherals,
+  pub breakpoints: HashSet<u16>,
 }
 
 impl Nes {
@@ -46,6 +48,8 @@ impl Nes {
       ram,
       ppu_registers_mirror,
       addresses_hit: HashSet::new(),
+      peripherals: Peripherals::new(),
+      breakpoints: HashSet::new(),
     })
   }
 
@@ -88,11 +92,19 @@ impl Nes {
     }
   }
 
-  pub fn frame(&mut self) {
+  pub fn frame(&mut self) -> bool {
     loop {
       self.clock();
+
+      // Only breaks on CPU instruction step boundaries; similar to running
+      // `step()`:
+      if self.tick % 3 == 1 && self.cpu.cycles_left == 0 && self.breakpoints.contains(&self.cpu.pc)
+      {
+        return true;
+      }
+
       if self.ppu.frame_complete == true {
-        return;
+        return false;
       }
     }
   }
@@ -164,6 +176,7 @@ impl Bus<Cpu> for Nes {
   fn read(&mut self, addr: u16) -> u8 {
     match None // Hehe, using None here just for formatting purposes:
       .or(self.cart.cpu_mapper.read(addr))
+      .or(self.peripherals.read(addr, &self.cart))
       .or(self.ram_mirror.read(&mut self.ram, addr, &self.cart))
       .or(
         self
@@ -178,7 +191,12 @@ impl Bus<Cpu> for Nes {
   fn write(&mut self, addr: u16, data: u8) {
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.cpu_mapper.write(addr, data))
-      .or_else(|| self.ram_mirror.write(&mut self.ram, addr, data, &mut self.cart))
+      .or_else(|| self.peripherals.write(addr, data, &mut self.cart))
+      .or_else(|| {
+        self
+          .ram_mirror
+          .write(&mut self.ram, addr, data, &mut self.cart)
+      })
       .or_else(|| {
         self
           .ppu_registers_mirror
@@ -361,6 +379,8 @@ mod tests {
       ram,
       ppu_registers_mirror,
       addresses_hit: HashSet::new(),
+      peripherals: Peripherals::new(),
+      breakpoints: HashSet::new(),
     }
   }
 

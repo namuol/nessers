@@ -17,6 +17,7 @@ serde = "1.0.137"
 # sub-dependencies, or auto-resolve a version based on what's in Cargo.lock?
 image = "0.21.3"
 rand = "0.7.3"
+winit = "0.24.0"
 
 [dev-dependencies]
 pretty_assertions = "1.2.1"

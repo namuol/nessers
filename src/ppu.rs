@@ -8,9 +8,9 @@ pub const SCREEN_H: usize = 240;
 #[derive(Clone)]
 pub struct Ppu {
   /// The current row number on the screen
-  scanline: isize,
+  pub scanline: isize,
   /// The current pixel number on the current scanline
-  cycle: isize,
+  pub cycle: isize,
   pub palette: Palette,
   pub name_tables: [[u8; 1024]; 2],
   pub pattern_tables: [[u8; 4096]; 2],
@@ -748,8 +748,8 @@ impl Ppu {
     &mut self,
     pattern_table: &[[u8; 4]; 128 * 128],
     name_table_idx: usize,
-  ) -> [[u8; 4]; 256 * 256] {
-    let mut result = [[0x00, 0x00, 0x00, 0xFF]; 256 * 256];
+  ) -> [[u8; 4]; 256 * 240] {
+    let mut result = [[0x00, 0x00, 0x00, 0xFF]; 256 * 240];
     for y in 0..30 {
       for x in 0..32 {
         let tile = self.name_tables[name_table_idx][y * 32 + x];
@@ -967,7 +967,7 @@ impl BusDevice for Ppu {
     Some(())
   }
 
-  fn safe_read(&self, _addr: u16, cart: &Cart) -> Option<u8> {
+  fn safe_read(&self, _addr: u16, _cart: &Cart) -> Option<u8> {
     todo!()
   }
 }
