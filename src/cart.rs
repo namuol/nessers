@@ -72,9 +72,9 @@ impl Cart {
 
     let flags_6 = data[6];
     let mirroring = if flags_6 & FLAG_MIRRORING != 0 {
-      Mirroring::Horizontal
-    } else {
       Mirroring::Vertical
+    } else {
+      Mirroring::Horizontal
     };
 
     let has_ram = flags_6 & FLAG_HAS_RAM != 0;

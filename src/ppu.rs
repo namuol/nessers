@@ -508,7 +508,7 @@ impl Ppu {
 
   #[allow(unused_comparisons)]
   pub fn ppu_read(&self, addr_: u16, cart: &Cart) -> u8 {
-    let addr = addr_ & 0x3FFF;
+    let mut addr = addr_ & 0x3FFF;
 
     match cart.ppu_mapper.read(addr) {
       Some(data) => {
@@ -522,7 +522,7 @@ impl Ppu {
       return self.pattern_tables[((addr & 0x1000) >> 12) as usize][(addr & 0x0FFF) as usize];
     } else if addr >= 0x2000 && addr <= 0x3EFF {
       // 0x2000 -> 0x3EFF = nametable memory
-
+      addr &= 0x0FFF;
       let table = match cart.mirroring {
         Mirroring::Vertical => match addr {
           0x0000..=0x03FF => 0,
@@ -541,8 +541,9 @@ impl Ppu {
         Mirroring::OneScreenLo => todo!(),
         Mirroring::OneScreenHi => todo!(),
       };
+      let idx = (addr & 0x03FF) as usize;
 
-      return self.name_tables[table][(addr & 0x03FF) as usize];
+      return self.name_tables[table][idx];
     } else if addr >= 0x3F00 && addr <= 0x3FFF {
       // 0x3F00 -> 0x3FFF = palette memory
       let addr = match addr & 0x001F {
@@ -561,7 +562,7 @@ impl Ppu {
 
   #[allow(unused_comparisons)]
   pub fn ppu_write(&mut self, addr_: u16, data: u8, cart: &mut Cart) {
-    let addr = addr_ & 0x3FFF;
+    let mut addr = addr_ & 0x3FFF;
 
     match cart.ppu_mapper.write(addr, data) {
       Some(()) => {
@@ -576,6 +577,7 @@ impl Ppu {
       return;
     } else if addr >= 0x2000 && addr <= 0x3EFF {
       // 0x2000 -> 0x3EFF = nametable memory
+      addr &= 0x0FFF;
       let table = match cart.mirroring {
         Mirroring::Vertical => match addr {
           0x0000..=0x03FF => 0,
