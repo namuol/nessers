@@ -13,6 +13,8 @@ use crate::trace::{trace, Trace};
 use std::collections::HashSet;
 
 pub struct Nes {
+  pub breakpoints: HashSet<u16>,
+
   pub cpu: Cpu,
   pub ppu: Ppu,
   tick: u64,
@@ -22,7 +24,13 @@ pub struct Nes {
   pub cart: Cart,
   pub addresses_hit: HashSet<u16>,
   pub peripherals: Peripherals,
-  pub breakpoints: HashSet<u16>,
+
+  dma_page: u8,
+  dma_addr: u8,
+  dma_data: u8,
+
+  dma_active: bool,
+  dma_dummy: bool,
 }
 
 impl Nes {
@@ -50,18 +58,46 @@ impl Nes {
       addresses_hit: HashSet::new(),
       peripherals: Peripherals::new(),
       breakpoints: HashSet::new(),
+
+      dma_page: 0x00,
+      dma_addr: 0x00,
+      dma_data: 0x00,
+
+      dma_active: false,
+      dma_dummy: true,
     })
   }
 
   pub fn clock(&mut self) {
     self.ppu.clock(&self.cart);
     if self.tick % 3 == 0 {
-      self.addresses_hit.insert(self.cpu.pc);
-      // Is there a shorthand way to run a method on a field by cloning it and
-      // replacing its value with the cloned object?
-      let cpu = &mut self.cpu.clone();
-      cpu.clock(self);
-      self.cpu = *cpu;
+      if self.dma_active {
+        if self.dma_dummy {
+          if self.tick % 2 == 1 {
+            self.dma_dummy = false;
+          }
+        } else {
+          if self.tick % 2 == 0 {
+            self.dma_data =
+              self.cpu_read((self.dma_page as u16) << 8 | ((self.dma_addr as u16) & 0x00FF));
+          } else {
+            self.ppu.set_oam_data(self.dma_addr, self.dma_data);
+            self.dma_addr = self.dma_addr.wrapping_add(1);
+            if self.dma_addr == 0x00 {
+              self.dma_active = false;
+              self.dma_dummy = true;
+            }
+          }
+        }
+        // self.dma_active = false;
+      } else {
+        self.addresses_hit.insert(self.cpu.pc);
+        // Is there a shorthand way to run a method on a field by cloning it and
+        // replacing its value with the cloned object?
+        let cpu = &mut self.cpu.clone();
+        cpu.clock(self);
+        self.cpu = *cpu;
+      }
     }
 
     if self.ppu.nmi {
@@ -191,6 +227,19 @@ impl Bus<Cpu> for Nes {
   fn write(&mut self, addr: u16, data: u8) {
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.cpu_mapper.write(addr, data))
+      .or_else(|| {
+        // Writing to 0x4014
+        //
+        // https://www.nesdev.org/wiki/PPU_registers#OAMDMA
+        if addr == 0x4014 {
+          self.dma_page = data;
+          self.dma_addr = 0x00;
+          self.dma_active = true;
+          return Some(());
+        }
+
+        None
+      })
       .or_else(|| self.peripherals.write(addr, data, &mut self.cart))
       .or_else(|| {
         self
@@ -379,6 +428,11 @@ mod tests {
       addresses_hit: HashSet::new(),
       peripherals: Peripherals::new(),
       breakpoints: HashSet::new(),
+      dma_page: 0x00,
+      dma_addr: 0x00,
+      dma_data: 0x00,
+      dma_active: false,
+      dma_dummy: true,
     }
   }
 

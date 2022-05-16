@@ -13,6 +13,16 @@ pub struct Color {
   pub b: u8,
 }
 
+impl Color {
+  pub fn new() -> Self {
+    Color {
+      r: 0x00,
+      g: 0x00,
+      b: 0x00,
+    }
+  }
+}
+
 /// NES color palette
 #[derive(Clone)]
 pub struct Palette {
@@ -24,6 +34,12 @@ pub struct Palette {
 }
 
 impl Palette {
+  pub fn new() -> Self {
+    Palette {
+      colors: [Color::new(); 64],
+      map: [0x00; 32],
+    }
+  }
   pub fn from_file(filename: &str) -> Result<Palette, &'static str> {
     let contents = fs::read(filename).expect(&format!("Failure reading {}", filename));
     if contents.len() != 192 {

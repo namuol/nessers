@@ -238,6 +238,10 @@ impl Game for NESDebugger {
           println!("nametable 1:\n{}", nametable_text.join("\n"));
         }
 
+        O => {
+          // Output debug info about OAM (Sprites)
+          println!("{}", self.nes.ppu.oam_trace());
+        }
         Tab => {
           // Clear the screen; useful for debugging drawing step by step.
           for n in 0..self.nes.ppu.screen.len() {

@@ -35,7 +35,7 @@ pub struct Ppu {
   /// Whether a non-maskable interrupt has been triggered
   pub nmi: bool,
 
-  // Internal state for rendering 8-pixels at a time
+  // Internal state for rendering 8-pixels of background at a time
   bg_next_tile_id: u8,
   bg_next_tile_attribute: u8,
   bg_next_tile_addr_lsb: u8,
@@ -45,6 +45,23 @@ pub struct Ppu {
   bg_shifter_pattern_hi: u16,
   bg_shifter_attrib_lo: u16,
   bg_shifter_attrib_hi: u16,
+
+  pub oam: [ObjectAttributeEntry; 64],
+
+  oam_addr: u8,
+}
+
+/// A Sprite, basically
+#[derive(Clone, Copy)]
+pub struct ObjectAttributeEntry {
+  /// Y position of the sprite
+  pub y: u8,
+  /// ID ofthe  tile in pattern memory
+  pub tile_id: u8,
+  /// Flags that determine how the sprite should be rendered
+  pub attribute: u8,
+  /// X position of the sprite
+  pub x: u8,
 }
 
 pub trait StatusRegister {
@@ -246,6 +263,15 @@ impl Ppu {
       bg_shifter_pattern_hi: 0x0000,
       bg_shifter_attrib_lo: 0x0000,
       bg_shifter_attrib_hi: 0x0000,
+
+      oam: [ObjectAttributeEntry {
+        y: 0x00,
+        tile_id: 0x00,
+        attribute: 0x00,
+        x: 0x00,
+      }; 64],
+
+      oam_addr: 0x00,
     }
   }
 
@@ -504,6 +530,48 @@ impl Ppu {
   fn get_color_from_palette_ram(&self, palette: u8, pixel: u8, cart: &Cart) -> Color {
     let idx = self.ppu_read(0x3F00 as u16 + ((palette << 2) + pixel) as u16, cart);
     self.palette.colors[(idx % 64) as usize]
+  }
+
+  fn get_oam_data(&self) -> u8 {
+    // Each OAM entry is 4 bytes long, so our OAM address needs to be divided by
+    // four to determine which index into our OAM array we need to read from.
+    let oam_entry = self.oam[(self.oam_addr as usize) / 4];
+
+    // The remainder determines which piece of data we need to read from our OAM
+    // entry:
+    match self.oam_addr % 4 {
+      0 => oam_entry.y,
+      1 => oam_entry.tile_id,
+      2 => oam_entry.attribute,
+      3 => oam_entry.x,
+      _ => 0x00, // Unreachable
+    }
+  }
+
+  pub fn set_oam_data(&mut self, oam_addr: u8, data: u8) {
+    // Each OAM entry is 4 bytes long, so our OAM address needs to be divided by
+    // four to determine which index into our OAM array we need to read from.
+    let idx = (oam_addr as usize) / 4;
+
+    // The remainder determines which piece of data we need to read from our OAM
+    // entry:
+    match oam_addr % 4 {
+      0 => self.oam[idx].y = data,
+      1 => self.oam[idx].tile_id = data,
+      2 => self.oam[idx].attribute = data,
+      3 => self.oam[idx].x = data,
+      _ => {} // Unreachable
+    };
+  }
+
+  pub fn oam_trace(&self) -> String {
+    let mut i = 0;
+    let mut string = String::new();
+    for sprite in self.oam {
+      string.push_str(&format!("{:02} {:02X} {:03},{:03} {:02X}\n", i, sprite.tile_id, sprite.x, sprite.y, sprite.attribute));
+      i += 1;
+    }
+    string
   }
 
   #[allow(unused_comparisons)]
@@ -815,8 +883,8 @@ impl BusDevice for Ppu {
     }
 
     match addr % 8 {
-      // 0x0000 => Some(self.control),
-      // 0x0001 => Some(self.mask),
+      // 0x0000 => Control register is not readable
+      // 0x0001 => Mask register is not readable
       0x0002 => {
         // https://www.nesdev.org/wiki/PPU_scrolling#$2002_read
         //
@@ -838,8 +906,8 @@ impl BusDevice for Ppu {
 
         Some(data)
       }
-      // 0x0003 => {} // OAM Address
-      // 0x0004 => {} // OAM Data
+      // 0x0003 => {}, // OAM Address
+      0x0004 => Some(self.get_oam_data()),
       // 0x0005 => {} // Scroll
       // 0x0006 => {} // PPU Address
       0x0007 => {
@@ -893,8 +961,8 @@ impl BusDevice for Ppu {
         self.mask = data;
       }
       // 0x0002 => {} // Status
-      // 0x0003 => {} // OAM Address
-      // 0x0004 => {} // OAM Data
+      0x0003 => self.oam_addr = data,
+      0x0004 => self.set_oam_data(self.oam_addr, data),
       0x0005 => {
         if self.address_latch == false {
           // https://www.nesdev.org/wiki/PPU_scrolling#$2005_first_write_(w_is_0)
@@ -976,8 +1044,10 @@ impl BusDevice for Ppu {
 
 #[cfg(test)]
 mod tests {
-  use crate::ppu::LoopyRegister;
+  use crate::{palette::Palette, ppu::LoopyRegister};
   use pretty_assertions::assert_eq;
+
+  use super::{ObjectAttributeEntry, Ppu};
 
   fn assert_eq_binary<T: std::fmt::Binary>(left: T, right: T, msg: &str) {
     assert_eq!(format!("{:08b}", left), format!("{:08b}", right), "{}", msg);
@@ -1012,5 +1082,65 @@ mod tests {
     assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_fine_y(0b00000_101), 0b1_101_1_1_11111_11111, "fine_y with stuff 2");
     assert_eq_binary((0b1_111_1_1_11111_11111 as u16).set_unused(true), 0b1_111_1_1_11111_11111, "unused with stuff 2");
     assert_eq_binary((0b0_111_1_1_11111_11111 as u16).set_unused(false), 0b0_111_1_1_11111_11111, "unused with stuff 2");
+  }
+
+  #[test]
+  fn get_oam_data() {
+    let mut ppu = Ppu::new(Palette::new());
+    let oam_entry = ObjectAttributeEntry {
+      y: 42,
+      tile_id: 43,
+      attribute: 44,
+      x: 45,
+    };
+
+    let idx = 42;
+    ppu.oam[idx as usize] = oam_entry;
+
+    // Before; should be all zeroes
+    ppu.oam_addr = idx * 4 - 1;
+    assert_eq!(ppu.get_oam_data(), 0x00);
+
+    ppu.oam_addr = idx * 4 + 0;
+    assert_eq!(ppu.get_oam_data(), oam_entry.y);
+
+    ppu.oam_addr = idx * 4 + 1;
+    assert_eq!(ppu.get_oam_data(), oam_entry.tile_id);
+
+    ppu.oam_addr = idx * 4 + 2;
+    assert_eq!(ppu.get_oam_data(), oam_entry.attribute);
+
+    ppu.oam_addr = idx * 4 + 3;
+    assert_eq!(ppu.get_oam_data(), oam_entry.x);
+
+    // After; should be all zeroes
+    ppu.oam_addr = idx * 4 + 4;
+    assert_eq!(ppu.get_oam_data(), 0x00);
+  }
+
+  #[test]
+  fn set_oam_data() {
+    let mut ppu = Ppu::new(Palette::new());
+
+    let idx = 42;
+
+    ppu.set_oam_data(idx * 4 + 0, 42);
+    assert_eq!(ppu.oam[idx as usize].y, 42);
+
+    ppu.set_oam_data(idx * 4 + 1, 43);
+    assert_eq!(ppu.oam[idx as usize].tile_id, 43);
+
+    ppu.set_oam_data(idx * 4 + 2, 44);
+    assert_eq!(ppu.oam[idx as usize].attribute, 44);
+
+    ppu.set_oam_data(idx * 4 + 3, 45);
+    assert_eq!(ppu.oam[idx as usize].x, 45);
+
+    // Looping over to the next item...
+    ppu.set_oam_data(idx * 4 + 4, 46);
+    assert_eq!(ppu.oam[idx as usize + 1].y, 46);
+
+    ppu.set_oam_data(idx * 4 + 5, 47);
+    assert_eq!(ppu.oam[idx as usize + 1].tile_id, 47);
   }
 }
