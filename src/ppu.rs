@@ -116,23 +116,23 @@ pub trait MaskRegister {
 
 #[rustfmt::skip]
 impl MaskRegister for u8 {
-  fn grayscale(self)              -> bool { (1 << 7) & self != 0 }
-  fn render_background_left(self) -> bool { (1 << 6) & self != 0 }
-  fn render_sprites_left(self)    -> bool { (1 << 5) & self != 0 }
-  fn render_background(self)      -> bool { (1 << 4) & self != 0 }
-  fn render_sprites(self)         -> bool { (1 << 3) & self != 0 }
-  fn enhance_red(self)            -> bool { (1 << 2) & self != 0 }
-  fn enhance_green(self)          -> bool { (1 << 1) & self != 0 }
-  fn enhance_blue(self)           -> bool { (1 << 0) & self != 0 }
+  fn grayscale(self)              -> bool { (1 << 0) & self != 0 }
+  fn render_background_left(self) -> bool { (1 << 1) & self != 0 }
+  fn render_sprites_left(self)    -> bool { (1 << 2) & self != 0 }
+  fn render_background(self)      -> bool { (1 << 3) & self != 0 }
+  fn render_sprites(self)         -> bool { (1 << 4) & self != 0 }
+  fn enhance_red(self)            -> bool { (1 << 5) & self != 0 }
+  fn enhance_green(self)          -> bool { (1 << 6) & self != 0 }
+  fn enhance_blue(self)           -> bool { (1 << 7) & self != 0 }
 
-  fn set_grayscale(self, v: bool)              -> u8 { self.set(7, v) }
-  fn set_render_background_left(self, v: bool) -> u8 { self.set(6, v) }
-  fn set_render_sprites_left(self, v: bool)    -> u8 { self.set(5, v) }
-  fn set_render_background(self, v: bool)      -> u8 { self.set(4, v) }
-  fn set_render_sprites(self, v: bool)         -> u8 { self.set(3, v) }
-  fn set_enhance_red(self, v: bool)            -> u8 { self.set(2, v) }
-  fn set_enhance_green(self, v: bool)          -> u8 { self.set(1, v) }
-  fn set_enhance_blue(self, v: bool)           -> u8 { self.set(0, v) }
+  fn set_grayscale(self, v: bool)              -> u8 { self.set(0, v) }
+  fn set_render_background_left(self, v: bool) -> u8 { self.set(1, v) }
+  fn set_render_sprites_left(self, v: bool)    -> u8 { self.set(2, v) }
+  fn set_render_background(self, v: bool)      -> u8 { self.set(3, v) }
+  fn set_render_sprites(self, v: bool)         -> u8 { self.set(4, v) }
+  fn set_enhance_red(self, v: bool)            -> u8 { self.set(5, v) }
+  fn set_enhance_green(self, v: bool)          -> u8 { self.set(6, v) }
+  fn set_enhance_blue(self, v: bool)           -> u8 { self.set(7, v) }
 }
 
 pub trait ControlRegister {
@@ -161,7 +161,7 @@ impl ControlRegister for u8 {
   fn nametable_y(self)        -> bool { (1 << 1) & self != 0 }
   fn increment_mode(self)     -> bool { (1 << 2) & self != 0 }
   fn pattern_sprite(self)     -> bool { (1 << 3) & self != 0 }
-  fn pattern_bg_table(self) -> bool { (1 << 4) & self != 0 }
+  fn pattern_bg_table(self)   -> bool { (1 << 4) & self != 0 }
   fn sprite_size(self)        -> bool { (1 << 5) & self != 0 }
   fn slave_mode(self)         -> bool { (1 << 6) & self != 0 }
   fn enable_nmi(self)         -> bool { (1 << 7) & self != 0 }
