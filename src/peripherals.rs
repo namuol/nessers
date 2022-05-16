@@ -45,7 +45,6 @@ impl From<Controller> for u8 {
 pub struct Peripherals {
   pub controllers: [Controller; 2],
   controller_shifts: [u8; 2],
-  controller_read_latch: bool,
 }
 
 impl Peripherals {
@@ -53,31 +52,23 @@ impl Peripherals {
     Peripherals {
       controllers: [Controller::new(), Controller::new()],
       controller_shifts: [0x00; 2],
-      controller_read_latch: false,
     }
   }
 }
 
 impl BusDevice for Peripherals {
-  fn write(&mut self, addr: u16, data: u8, _cart: &mut crate::cart::Cart) -> Option<()> {
+  fn write(&mut self, addr: u16, _data: u8, _cart: &mut crate::cart::Cart) -> Option<()> {
     if addr == 0x4016 {
-      if data == 1 {
-        // Store our controller state into the bit shift register buffer:
-        self.controller_shifts[0] = self.controllers[0].into();
-        self.controller_shifts[1] = self.controllers[1].into();
-        self.controller_read_latch = true;
-        return Some(());
-      }
+      // Store our controller state into the bit shift register buffer:
+      self.controller_shifts[0] = self.controllers[0].into();
+      self.controller_shifts[1] = self.controllers[1].into();
+      return Some(());
     }
 
     None
   }
 
   fn read(&mut self, addr: u16, _cart: &crate::cart::Cart) -> Option<u8> {
-    if !self.controller_read_latch {
-      return None;
-    }
-
     match addr {
       0x4016 | 0x4017 => {
         let num = if addr == 0x4016 { 0 } else { 1 };
