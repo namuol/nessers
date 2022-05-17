@@ -5,6 +5,19 @@ use crate::palette::{Color, Palette};
 pub const SCREEN_W: usize = 256;
 pub const SCREEN_H: usize = 240;
 
+/// 0b0100_0001 -> 0b1000_0010
+fn flip(bits: u8) -> u8 {
+  0x00
+    | (bits & 0b1000_0000) >> 7
+    | (bits & 0b0100_0000) >> 5
+    | (bits & 0b0010_0000) >> 3
+    | (bits & 0b0001_0000) >> 1
+    | (bits & 0b0000_1000) << 1
+    | (bits & 0b0000_0100) << 3
+    | (bits & 0b0000_0010) << 5
+    | (bits & 0b0000_0001) << 7
+}
+
 #[derive(Clone)]
 pub struct Ppu {
   /// The current row number on the screen
@@ -49,6 +62,9 @@ pub struct Ppu {
   pub oam: [ObjectAttributeEntry; 64],
 
   oam_addr: u8,
+
+  // For rendering sprites:
+  sprites_on_scanline: Vec<ObjectAttributeEntry>,
 }
 
 /// A Sprite, basically
@@ -62,6 +78,26 @@ pub struct ObjectAttributeEntry {
   pub attribute: u8,
   /// X position of the sprite
   pub x: u8,
+}
+
+impl ObjectAttributeEntry {
+  /// Whether or not this sprite should be flipped horizontally
+  fn flip_x(self) -> bool {
+    (self.attribute & 0b0100_0000) != 0
+  }
+  /// Whether or not this sprite should be flipped vertically
+  fn flip_y(self) -> bool {
+    (self.attribute & 0b1000_0000) != 0
+  }
+
+  fn palette(self) -> u8 {
+    // NES has 8 total palettes; first 4 are for BG rendering, and last 4 are
+    // for FG rendering.
+    //
+    // The palette index is 2 bits (0-4) so we can add 4 to get the absolute
+    // palette index:
+    4 + (self.attribute & 0b0000_0011)
+  }
 }
 
 pub trait StatusRegister {
@@ -156,18 +192,18 @@ pub trait ControlRegister {
   fn nametable_x(self) -> bool;
   fn nametable_y(self) -> bool;
   fn increment_mode(self) -> bool;
-  fn pattern_sprite(self) -> bool;
+  fn pattern_fg_table(self) -> bool;
   fn pattern_bg_table(self) -> bool;
-  fn sprite_size(self) -> bool;
+  fn tall_sprites(self) -> bool;
   fn slave_mode(self) -> bool;
   fn enable_nmi(self) -> bool;
 
   fn set_nametable_x(self, v: bool) -> Self;
   fn set_nametable_y(self, v: bool) -> Self;
   fn set_increment_mode(self, v: bool) -> Self;
-  fn set_pattern_sprite(self, v: bool) -> Self;
+  fn set_pattern_fg_table(self, v: bool) -> Self;
   fn set_pattern_background(self, v: bool) -> Self;
-  fn set_sprite_size(self, v: bool) -> Self;
+  fn set_tall_sprites(self, v: bool) -> Self;
   fn set_slave_mode(self, v: bool) -> Self;
   fn set_enable_nmi(self, v: bool) -> Self;
 }
@@ -177,18 +213,18 @@ impl ControlRegister for u8 {
   fn nametable_x(self)        -> bool { (1 << 0) & self != 0 }
   fn nametable_y(self)        -> bool { (1 << 1) & self != 0 }
   fn increment_mode(self)     -> bool { (1 << 2) & self != 0 }
-  fn pattern_sprite(self)     -> bool { (1 << 3) & self != 0 }
+  fn pattern_fg_table(self)     -> bool { (1 << 3) & self != 0 }
   fn pattern_bg_table(self)   -> bool { (1 << 4) & self != 0 }
-  fn sprite_size(self)        -> bool { (1 << 5) & self != 0 }
+  fn tall_sprites(self)        -> bool { (1 << 5) & self != 0 }
   fn slave_mode(self)         -> bool { (1 << 6) & self != 0 }
   fn enable_nmi(self)         -> bool { (1 << 7) & self != 0 }
 
   fn set_nametable_x(self, v: bool)         -> u8 { self.set(0, v) }
   fn set_nametable_y(self, v: bool)         -> u8 { self.set(1, v) }
   fn set_increment_mode(self, v: bool)      -> u8 { self.set(2, v) }
-  fn set_pattern_sprite(self, v: bool)      -> u8 { self.set(3, v) }
+  fn set_pattern_fg_table(self, v: bool)      -> u8 { self.set(3, v) }
   fn set_pattern_background(self, v: bool)  -> u8 { self.set(4, v) }
-  fn set_sprite_size(self, v: bool)         -> u8 { self.set(5, v) }
+  fn set_tall_sprites(self, v: bool)         -> u8 { self.set(5, v) }
   fn set_slave_mode(self, v: bool)          -> u8 { self.set(6, v) }
   fn set_enable_nmi(self, v: bool)          -> u8 { self.set(7, v) }
 }
@@ -265,13 +301,15 @@ impl Ppu {
       bg_shifter_attrib_hi: 0x0000,
 
       oam: [ObjectAttributeEntry {
-        y: 0x00,
-        tile_id: 0x00,
-        attribute: 0x00,
-        x: 0x00,
+        y: 0xFF,
+        tile_id: 0xFF,
+        attribute: 0xFF,
+        x: 0xFF,
       }; 64],
 
       oam_addr: 0x00,
+
+      sprites_on_scanline: vec![],
     }
   }
 
@@ -475,6 +513,28 @@ impl Ppu {
       if self.scanline == -1 && self.cycle >= 280 && self.cycle <= 304 {
         self.transfer_address_y();
       }
+
+      // Foreground sprite rendering
+      if self.cycle == 257 && self.scanline >= 0 {
+        let scanline = self.scanline as i16;
+        let sprite_height = if self.control.tall_sprites() { 16 } else { 8 };
+
+        self.sprites_on_scanline.clear();
+        // Determine which sprites will be visible on our scanline; we only draw
+        // the first 8 that appear in the order of our OAM.
+        for sprite in self.oam {
+          let y_diff = scanline - (sprite.y as i16);
+          // First determine whether the sprite is within our Y range:
+          if !(y_diff >= 0 && y_diff < sprite_height) {
+            continue;
+          }
+
+          self.sprites_on_scanline.push(sprite);
+          if self.sprites_on_scanline.len() == 8 {
+            break;
+          }
+        }
+      }
     }
 
     if self.scanline == 240 {
@@ -493,24 +553,62 @@ impl Ppu {
     }
 
     if self.cycle >= 1 && self.cycle <= 256 && self.scanline >= 0 && self.scanline <= 239 {
-      let mut bg_pixel: u8 = 0x00;
-      let mut bg_palette: u8 = 0x00;
-      if self.mask.render_background() {
+      let mut pixel: u8 = 0x00;
+      let mut palette: u8 = 0x00;
+
+      if self.mask.render_sprites() {
+        // First determine which sprite (if any) we need to render:
+
+        // For now, let's just draw the first one we encounter:
+        for i in 0..self.sprites_on_scanline.len() {
+          let sprite = self.sprites_on_scanline[i];
+          let x_diff = (self.cycle as i16) - (sprite.x as i16) - 1;
+          if !(x_diff >= 0 && x_diff < 8) {
+            continue;
+          }
+          let y_diff = (self.scanline as i16) - (sprite.y as i16) - 1;
+
+          // Low/High tile byte
+          let base_addr = ((self.control.pattern_fg_table() as u16) * 0x1000)
+            .wrapping_add((sprite.tile_id as u16) << 4)
+            .wrapping_add(if sprite.flip_y() { 7 - y_diff } else { y_diff } as u16);
+
+          // We can shift our bit-fields by our x-diff so the most significant
+          // bit is the current pixel value:
+          let mut tile_lsb = self.ppu_read(base_addr + 0, cart);
+          let mut tile_msb = self.ppu_read(base_addr + 8, cart);
+          if sprite.flip_x() {
+            tile_lsb = flip(tile_lsb);
+            tile_msb = flip(tile_msb);
+          }
+          tile_lsb <<= x_diff;
+          tile_msb <<= x_diff;
+          let p0_pixel = ((tile_lsb & 0b1000_0000) > 0) as u8;
+          let p1_pixel = ((tile_msb & 0b1000_0000) > 0) as u8;
+          pixel = (p1_pixel << 1) | p0_pixel;
+          if pixel != 0x00 {
+            palette = sprite.palette();
+            break;
+          }
+        }
+      }
+
+      if pixel == 0x00 && self.mask.render_background() {
         let bit_mux: u16 = 0x8000 >> self.fine_x;
         let p0_pixel = ((self.bg_shifter_pattern_lo & bit_mux) > 0) as u8;
         let p1_pixel = ((self.bg_shifter_pattern_hi & bit_mux) > 0) as u8;
-        bg_pixel = (p1_pixel << 1) | p0_pixel;
+        pixel = (p1_pixel << 1) | p0_pixel;
 
         let bg_pal0 = ((self.bg_shifter_attrib_lo & bit_mux) > 0) as u8;
         let bg_pal1 = ((self.bg_shifter_attrib_hi & bit_mux) > 0) as u8;
-        bg_palette = (bg_pal1 << 1) | bg_pal0;
+        palette = (bg_pal1 << 1) | bg_pal0;
       }
 
       // Finally, let's draw our pixel at (scanline, cycle)
       let screen_x = self.cycle - 1;
       let screen_y = self.scanline;
       let idx = (screen_y as usize) * SCREEN_W + (screen_x as usize);
-      let color = self.get_color_from_palette_ram(bg_palette, bg_pixel, cart);
+      let color = self.get_color_from_palette_ram(palette, pixel, cart);
       self.screen[idx][0] = color.r;
       self.screen[idx][1] = color.g;
       self.screen[idx][2] = color.b;
@@ -568,7 +666,10 @@ impl Ppu {
     let mut i = 0;
     let mut string = String::new();
     for sprite in self.oam {
-      string.push_str(&format!("{:02} {:02X} {:03},{:03} {:02X}\n", i, sprite.tile_id, sprite.x, sprite.y, sprite.attribute));
+      string.push_str(&format!(
+        "{:02} {:02X} {:03},{:03} {:02X}\n",
+        i, sprite.tile_id, sprite.x, sprite.y, sprite.attribute
+      ));
       i += 1;
     }
     string
