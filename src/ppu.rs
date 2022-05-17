@@ -85,11 +85,13 @@ impl ObjectAttributeEntry {
   fn flip_x(self) -> bool {
     (self.attribute & 0b0100_0000) != 0
   }
+
   /// Whether or not this sprite should be flipped vertically
   fn flip_y(self) -> bool {
     (self.attribute & 0b1000_0000) != 0
   }
 
+  /// Palette for the sprite, in absolute terms (always in the range 4 to 7)
   fn palette(self) -> u8 {
     // NES has 8 total palettes; first 4 are for BG rendering, and last 4 are
     // for FG rendering.
@@ -301,10 +303,10 @@ impl Ppu {
       bg_shifter_attrib_hi: 0x0000,
 
       oam: [ObjectAttributeEntry {
-        y: 0xFF,
-        tile_id: 0xFF,
-        attribute: 0xFF,
-        x: 0xFF,
+        y: 0x00,
+        tile_id: 0x00,
+        attribute: 0x00,
+        x: 0x00,
       }; 64],
 
       oam_addr: 0x00,
@@ -417,9 +419,13 @@ impl Ppu {
       if self.scanline == -1 && self.cycle == 1 {
         // Clear:
         // - VBlank
-        self.status = self.status.set_vblank(false);
-        // - Sprite 0: TODO
-        // - Overflow: TODO
+        // - Sprite 0
+        // - Overflow
+        self.status = self
+          .status
+          .set_vblank(false)
+          .set_sprite_zero_hit(false)
+          .set_sprite_overflow(false);
       }
 
       if (self.cycle >= 2 && self.cycle < 258) || (self.cycle >= 321 && self.cycle < 338) {
@@ -514,7 +520,7 @@ impl Ppu {
         self.transfer_address_y();
       }
 
-      // Foreground sprite rendering
+      // Foreground sprite "evaluation"
       if self.cycle == 257 && self.scanline >= 0 {
         let scanline = self.scanline as i16;
         let sprite_height = if self.control.tall_sprites() { 16 } else { 8 };
@@ -528,13 +534,21 @@ impl Ppu {
           if !(y_diff >= 0 && y_diff < sprite_height) {
             continue;
           }
-
-          self.sprites_on_scanline.push(sprite);
-          if self.sprites_on_scanline.len() == 8 {
+          if self.sprites_on_scanline.len() < 8 {
+            self.sprites_on_scanline.push(sprite);
+          }
+          if self.sprites_on_scanline.len() >= 8 {
+            self.status = self.status.set_sprite_overflow(true);
             break;
           }
         }
       }
+
+      // if self.cycle == 340 {
+      //   for sprite in self.sprites_on_scanline {
+
+      //   }
+      // }
     }
 
     if self.scanline == 240 {
@@ -568,10 +582,44 @@ impl Ppu {
           }
           let y_diff = (self.scanline as i16) - (sprite.y as i16) - 1;
 
+          // Table number to get our sprite graphics from.
+          // false = 0; true = 1
+          let table: bool;
+          let tile_id: u8;
+          match self.control.tall_sprites() {
+            // When we're working with tall sprites, each sprite takes up 2x the
+            // space, so we can only refer to 128 sprites per table instead of
+            // the usual 256.
+            //
+            // Rather than being limited to a single pattern table for sprites,
+            // we can use the unused bit in our tile ID byte to select which
+            // pattern table we want our sprite to be from.
+            //
+            // The NES designers use the least significant bit of our tile ID
+            // byte for this purpose.
+            true => {
+              table = (sprite.tile_id & 0b0000_0001) != 0;
+              // The tile_id
+              tile_id = if y_diff < 8 {
+                // Top 8x8 of the 8x16 sprite:
+                sprite.tile_id & 0b1111_1110
+              } else {
+                // Bottom 8x8 of the 8x16 sprite; effectively one full row down:
+                sprite.tile_id
+              };
+            }
+            // Otherwise all sprites share the same table, controlled with a
+            // flag in the control register:
+            false => {
+              table = self.control.pattern_fg_table();
+              tile_id = sprite.tile_id;
+            }
+          };
+
           // Low/High tile byte
-          let base_addr = ((self.control.pattern_fg_table() as u16) * 0x1000)
-            .wrapping_add((sprite.tile_id as u16) << 4)
-            .wrapping_add(if sprite.flip_y() { 7 - y_diff } else { y_diff } as u16);
+          let base_addr = ((table as u16) << 12)
+            | ((tile_id as u16) << 4)
+            | (((if sprite.flip_y() { 7 - y_diff } else { y_diff }) as u16) & 0x0007);
 
           // We can shift our bit-fields by our x-diff so the most significant
           // bit is the current pixel value:
