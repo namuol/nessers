@@ -17,8 +17,6 @@ const MXXX: Mapper = Mapper {
   ppu_write: |_, _| todo!(),
 };
 
-const NOP: MapperFn = |_, _| None;
-
 const M000_CPU: MapperFn = |addr, num_banks| {
   if addr >= 0x8000 && addr <= 0xFFFF {
     // - num_banks > 1 => 32k rom => map 0x8000 to 0x0000

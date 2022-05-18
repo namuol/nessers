@@ -533,26 +533,29 @@ impl Ppu {
 
       // Foreground sprite "evaluation"
       if self.cycle == 257 && self.scanline >= 0 {
-        self.sprites_on_scanline_contains_sprite_0 = false;
         let scanline = self.scanline as i16;
         let sprite_height = if self.control.tall_sprites() { 16 } else { 8 };
 
         self.sprites_on_scanline.clear();
+        self.sprites_on_scanline_contains_sprite_0 = false;
         // Determine which sprites will be visible on our scanline; we only draw
         // the first 8 that appear in the order of our OAM.
         for i in 0..self.oam.len() {
           let sprite = self.oam[i];
           let y_diff = scanline - (sprite.y as i16);
+
           // First determine whether the sprite is within our Y range:
           if !(y_diff >= 0 && y_diff < sprite_height) {
             continue;
           }
+
           if self.sprites_on_scanline.len() < 8 {
             if i == 0 {
               self.sprites_on_scanline_contains_sprite_0 = true;
             }
             self.sprites_on_scanline.push(sprite);
           }
+
           if self.sprites_on_scanline.len() >= 8 {
             self.status = self.status.set_sprite_overflow(true);
             break;
