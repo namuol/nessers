@@ -39,7 +39,13 @@ const M000: Mapper = Mapper {
       None
     }
   },
-  ppu_write: NOP,
+  ppu_write: |addr, _| {
+    if addr >= 0x0000 && addr <= 0x1FFF {
+      Some(addr)
+    } else {
+      None
+    }
+  },
 };
 
 pub const MAPPERS: [Mapper; 256] = [

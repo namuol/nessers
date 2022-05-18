@@ -56,7 +56,8 @@ impl Cart {
       return Err("Too small to contain header");
     }
 
-    // let format_version = (data[7] & 0b00001100) >> 2;
+    let format_version = (data[7] & 0b00001100) >> 2;
+    println!("iNES format version: {}", format_version);
 
     // if format_version != 1 {
     //   return Err("iNES 1.0 format is the only supported format");
@@ -89,7 +90,7 @@ impl Cart {
     };
     let chr_start = prg_start + prg_size;
 
-    if data.len() < chr_start + chr_size {
+    if chr_size > 0 && data.len() < chr_start + chr_size {
       return Err("File is too small to contain ROM data");
     }
 
@@ -103,7 +104,11 @@ impl Cart {
       ppu_mapper: CartPpuMapper {
         mapper: MAPPERS[mapper_code as usize].clone(),
         num_chr_banks,
-        chr: data[chr_start..chr_start + chr_size].to_vec(),
+        chr: if chr_size > 0 {
+          data[chr_start..chr_start + chr_size].to_vec()
+        } else {
+          vec![0x00; 1024 * 8]
+        },
       },
       cpu_mapper: CartCpuMapper {
         mapper: MAPPERS[mapper_code as usize].clone(),
