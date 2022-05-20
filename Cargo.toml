@@ -8,6 +8,7 @@ version = "0.1.0"
 
 [dependencies]
 coffee = {version = "0.4.1", features = ["vulkan"]}
+cpal = "0.13.5"
 docopt = "1.1.1"
 lazy_static = "1.4.0"
 maplit = "1.0.2"

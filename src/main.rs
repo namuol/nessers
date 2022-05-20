@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate maplit;
 
+use audio::AudioDevice;
 use coffee::graphics::{Color, Frame, Gpu, Window, WindowSettings};
 use coffee::input::{self, keyboard, Input};
 use coffee::load::Task;
@@ -14,6 +15,8 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use winit::event::VirtualKeyCode::*;
 
+pub mod apu;
+pub mod audio;
 pub mod bus;
 pub mod bus_device;
 pub mod cart;
@@ -58,6 +61,7 @@ fn main() -> Result<()> {
 }
 
 struct NESDebugger {
+  audio_device: AudioDevice,
   screen_img: Option<coffee::graphics::Image>,
   pattern_table_0_img: Option<coffee::graphics::Image>,
   pattern_table_1_img: Option<coffee::graphics::Image>,
@@ -133,8 +137,9 @@ impl Game for NESDebugger {
         .iter()
         .map(|s| u16::from_str_radix(s, 16).unwrap())
         .collect();
-
+      let audio_device = AudioDevice::init();
       let mut debugger_ui = NESDebugger {
+        audio_device,
         screen_img: None,
         pattern_table_0_img: None,
         pattern_table_1_img: None,
@@ -257,6 +262,13 @@ impl Game for NESDebugger {
               break;
             }
           }
+        }
+
+        S => {
+          std::thread::spawn(|| {
+            AudioDevice::init().play();
+            std::thread::sleep(std::time::Duration::from_millis(1000));
+          });
         }
 
         _ => {}
