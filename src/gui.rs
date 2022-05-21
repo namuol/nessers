@@ -1,153 +1,173 @@
-use imgui::{Condition, Window};
+use crate::nes::Nes;
+
+use egui::{ClippedMesh, Context, TexturesDelta};
+use egui_memory_editor::{option_data::MemoryEditorOptions, MemoryEditor};
+use egui_wgpu_backend::{BackendError, RenderPass, ScreenDescriptor};
 use pixels::{wgpu, PixelsContext};
-use std::time::Instant;
+use winit::window::Window;
 
-use crate::ppu::SCREEN_W;
+/// Manages all state required for rendering egui over `Pixels`.
+pub(crate) struct Framework {
+  // State for egui.
+  egui_ctx: Context,
+  egui_state: egui_winit::State,
+  screen_descriptor: ScreenDescriptor,
+  rpass: RenderPass,
+  paint_jobs: Vec<ClippedMesh>,
+  textures: TexturesDelta,
 
-/// Manages all state required for rendering Dear ImGui over `Pixels`.
-pub(crate) struct Gui {
-  imgui: imgui::Context,
-  platform: imgui_winit_support::WinitPlatform,
-  renderer: imgui_wgpu::Renderer,
-  last_frame: Instant,
-  last_cursor: Option<imgui::MouseCursor>,
-  about_open: bool,
+  // State for the GUI
+  gui: Gui,
 }
 
-impl Gui {
-  /// Create Dear ImGui.
-  pub(crate) fn new(window: &winit::window::Window, pixels: &pixels::Pixels) -> Self {
-    // Create Dear ImGui context
-    let mut imgui = imgui::Context::create();
-    imgui.set_ini_filename(None);
+/// Example application state. A real application will need a lot more state than this.
+struct Gui {
+  bus_open: bool,
+  memory_editor: MemoryEditor,
+}
 
-    // Initialize winit platform support
-    let mut platform = imgui_winit_support::WinitPlatform::init(&mut imgui);
-    platform.attach_window(
-      imgui.io_mut(),
-      window,
-      imgui_winit_support::HiDpiMode::Default,
-    );
+impl Framework {
+  /// Create egui.
+  pub(crate) fn new(width: u32, height: u32, scale_factor: f32, pixels: &pixels::Pixels) -> Self {
+    let max_texture_size = pixels.device().limits().max_texture_dimension_2d as usize;
 
-    // Configure Dear ImGui fonts
-    let hidpi_factor = window.scale_factor();
-    let font_size = (13.0 * hidpi_factor) as f32;
-    imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
-    imgui
-      .fonts()
-      .add_font(&[imgui::FontSource::DefaultFontData {
-        config: Some(imgui::FontConfig {
-          oversample_h: 1,
-          pixel_snap_h: true,
-          size_pixels: font_size,
-          ..Default::default()
-        }),
-      }]);
-
-    // Create Dear ImGui WGPU renderer
-    let device = pixels.device();
-    let queue = pixels.queue();
-    let config = imgui_wgpu::RendererConfig {
-      texture_format: pixels.render_texture_format(),
-      ..Default::default()
+    let egui_ctx = Context::default();
+    let egui_state = egui_winit::State::from_pixels_per_point(max_texture_size, scale_factor);
+    let screen_descriptor = ScreenDescriptor {
+      physical_width: width,
+      physical_height: height,
+      scale_factor,
     };
-    let renderer = imgui_wgpu::Renderer::new(&mut imgui, device, queue, config);
+    let rpass = RenderPass::new(pixels.device(), pixels.render_texture_format(), 1);
+    let textures = TexturesDelta::default();
+    let gui = Gui::new();
 
-    // Return GUI context
     Self {
-      imgui,
-      platform,
-      renderer,
-      last_frame: Instant::now(),
-      last_cursor: None,
-      about_open: false,
+      egui_ctx,
+      egui_state,
+      screen_descriptor,
+      rpass,
+      paint_jobs: Vec::new(),
+      textures,
+      gui,
     }
   }
 
-  /// Prepare Dear ImGui.
-  pub(crate) fn prepare(
-    &mut self,
-    window: &winit::window::Window,
-  ) -> Result<(), winit::error::ExternalError> {
-    // Prepare Dear ImGui
-    let now = Instant::now();
-    self.imgui.io_mut().update_delta_time(now - self.last_frame);
-    self.last_frame = now;
-    self.platform.prepare_frame(self.imgui.io_mut(), window)
+  /// Handle input events from the window manager.
+  pub(crate) fn handle_event(&mut self, event: &winit::event::WindowEvent) {
+    self.egui_state.on_event(&self.egui_ctx, event);
   }
 
-  /// Render Dear ImGui.
+  /// Resize egui.
+  pub(crate) fn resize(&mut self, width: u32, height: u32) {
+    if width > 0 && height > 0 {
+      self.screen_descriptor.physical_width = width;
+      self.screen_descriptor.physical_height = height;
+    }
+  }
+
+  /// Update scaling factor.
+  pub(crate) fn scale_factor(&mut self, scale_factor: f64) {
+    self.screen_descriptor.scale_factor = scale_factor as f32;
+  }
+
+  /// Prepare egui.
+  pub(crate) fn prepare(&mut self, window: &Window, nes: &mut Nes, egui_has_focus: &mut bool) {
+    // Run the egui frame and create all paint jobs to prepare for rendering.
+    let raw_input = self.egui_state.take_egui_input(window);
+    let mut result = false;
+    let output = self.egui_ctx.run(raw_input, |egui_ctx| {
+      // Draw the demo application.
+      *egui_has_focus = self.gui.ui(egui_ctx, nes);
+    });
+
+    self.textures.append(output.textures_delta);
+    self
+      .egui_state
+      .handle_platform_output(window, &self.egui_ctx, output.platform_output);
+    self.paint_jobs = self.egui_ctx.tessellate(output.shapes);
+  }
+
+  /// Render egui.
   pub(crate) fn render(
     &mut self,
-    window: &winit::window::Window,
     encoder: &mut wgpu::CommandEncoder,
     render_target: &wgpu::TextureView,
     context: &PixelsContext,
-  ) -> imgui_wgpu::RendererResult<()> {
-    // Start a new Dear ImGui frame and update the cursor
-    let ui = self.imgui.frame();
-
-    let mouse_cursor = ui.mouse_cursor();
-    if self.last_cursor != mouse_cursor {
-      self.last_cursor = mouse_cursor;
-      self.platform.prepare_render(&ui, window);
-    }
-
-    // Draw windows and GUI elements here
-    let mut about_open = false;
-    ui.main_menu_bar(|| {
-      ui.menu("Help", || {
-        about_open = imgui::MenuItem::new("About...").build(&ui);
-      });
-    });
-    if about_open {
-      self.about_open = true;
-    }
-
-    if self.about_open {
-      ui.show_about_window(&mut self.about_open);
-    }
-
-    Window::new("Hello world")
-      .size([300.0, 100.0], Condition::FirstUseEver)
-      .position([SCREEN_W as f32, 16.0], Condition::Always)
-      .build(&ui, || {
-        ui.text(["Hello world!"; 10000].join("\n"));
-        // ui.separator();
-        // let mouse_pos = ui.io().mouse_pos;
-        // ui.text(format!(
-        //   "Mouse Position: ({:.1},{:.1})",
-        //   mouse_pos[0], mouse_pos[1]
-        // ));
-      });
-
-    // Render Dear ImGui with WGPU
-    let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-      label: Some("imgui"),
-      color_attachments: &[wgpu::RenderPassColorAttachment {
-        view: render_target,
-        resolve_target: None,
-        ops: wgpu::Operations {
-          load: wgpu::LoadOp::Load,
-          store: true,
-        },
-      }],
-      depth_stencil_attachment: None,
-    });
-
+  ) -> Result<(), BackendError> {
+    // Upload all resources to the GPU.
     self
-      .renderer
-      .render(ui.render(), &context.queue, &context.device, &mut rpass)
+      .rpass
+      .add_textures(&context.device, &context.queue, &self.textures)?;
+    self.rpass.update_buffers(
+      &context.device,
+      &context.queue,
+      &self.paint_jobs,
+      &self.screen_descriptor,
+    );
+
+    // Record all render passes.
+    self.rpass.execute(
+      encoder,
+      render_target,
+      &self.paint_jobs,
+      &self.screen_descriptor,
+      None,
+    )?;
+
+    // Cleanup
+    let textures = std::mem::take(&mut self.textures);
+    self.rpass.remove_textures(textures)
+  }
+}
+
+impl Gui {
+  /// Create a `Gui`.
+  fn new() -> Self {
+    let mut opts = MemoryEditorOptions::default();
+    opts.is_options_collapsed = true;
+    opts.show_ascii = false;
+    let memory_editor = MemoryEditor::new()
+      .with_window_title("Bus editor")
+      .with_options(opts)
+      .with_address_range("All", 0..0xFFFF);
+    Self {
+      bus_open: false,
+      memory_editor,
+    }
   }
 
-  /// Handle any outstanding events.
-  pub(crate) fn handle_event(
-    &mut self,
-    window: &winit::window::Window,
-    event: &winit::event::Event<()>,
-  ) {
-    self
-      .platform
-      .handle_event(self.imgui.io_mut(), window, event);
+  /// Create the UI using egui.
+  ///
+  /// Returns `true` if any egui widget has focus.
+  fn ui(&mut self, ctx: &Context, nes: &mut Nes) -> bool {
+    egui::TopBottomPanel::top("menubar_container").show(ctx, |ui| {
+      egui::menu::bar(ui, |ui| {
+        ui.menu_button("File", |ui| {
+          if ui.button("Bus editor").clicked() {
+            self.bus_open = true;
+            ui.close_menu();
+          }
+        })
+      });
+    });
+
+    self.memory_editor.window_ui(
+      ctx,
+      &mut self.bus_open,
+      nes,
+      |nes, address| Some(nes.safe_cpu_read(address as u16)),
+      |nes, address, value| nes.cpu_write(address as u16, value),
+    );
+
+    // It's not obvious at all but this checks to see if any UI has focus, and
+    // if it does, returns `Some(...)`.
+    //
+    // We only want to capture keyboard input while no UI has focus, in case
+    // we're using the keyboard to enter data or navigate the UI.
+    match ctx.memory().focus() {
+      None => false,
+      Some(_) => true,
+    }
   }
 }

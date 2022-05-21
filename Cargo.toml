@@ -7,13 +7,14 @@ version = "0.1.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-coffee = {version = "0.4.1", features = ["vulkan"]}
+# coffee = {version = "0.4.1", features = ["vulkan"]}
 cpal = "0.13.5"
 docopt = "1.1.1"
+egui = "0.17"
+egui-winit = {version = "0.17"}
+egui_memory_editor = {git = "https://github.com/Hirtol/egui_memory_editor", rev = "caaed40aa12d5409ceb41e171ad4e55e8c4e7787"}
+egui_wgpu_backend = "0.17"
 env_logger = "0.9"
-imgui = "0.8.2"
-imgui-wgpu = "0.19"
-imgui-winit-support = {version = "0.8", default-features = false, features = ["winit-26"]}
 lazy_static = "1.4.0"
 log = "0.4"
 maplit = "1.0.2"
@@ -30,8 +31,8 @@ rand = "0.7.3"
 [dev-dependencies]
 pretty_assertions = "1.2.1"
 
-[patch.crates-io]
-coffee = {git = "https://github.com/namuol/coffee", rev = "cfc18d8cae128b6f22087872ab37ba152c9dc55e"}
+# [patch.crates-io]
+# coffee = {git = "https://github.com/namuol/coffee", rev = "cfc18d8cae128b6f22087872ab37ba152c9dc55e"}
 
 [profile.dev]
 opt-level = 2
