@@ -1,5 +1,5 @@
 [workspace]
-members = ["nessers-main"]
+members = ["nessers-main", "egui_memory_editor"]
 resolver = "2"
 
 [profile.dev]

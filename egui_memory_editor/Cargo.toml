@@ -1,0 +1,29 @@
+[package]
+name = "egui_memory_editor"
+version = "0.1.4"
+authors = ["Hirtol <rust@hirtol.top>"]
+edition = "2018"
+description = "A simple memory editor for the egui library"
+readme = "README.md"
+homepage = "https://github.com/Hirtol/egui_memory_editor"
+repository = "https://github.com/Hirtol/egui_memory_editor"
+license = "MIT/Apache-2.0"
+keywords = ["egui", "memory", "editor", "emulator"]
+categories = ["gui"]
+exclude = ["assets/*", ".github/*"]
+
+[features]
+default = []
+serde = ["dep:serde", "egui/persistence"]
+
+[dependencies]
+egui = "0.17"
+
+[dev-dependencies]
+eframe = "0.17"
+
+[dependencies.serde]
+version = "^1.0.123"
+features = ["derive"]
+optional = true
+
