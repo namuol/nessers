@@ -65,6 +65,7 @@ pub struct Ppu {
 
   // For rendering sprites:
   sprites_on_scanline: Vec<ObjectAttributeEntry>,
+  sprites_on_scanline_contains_sprite_0: bool,
 }
 
 /// A Sprite, basically
@@ -85,11 +86,13 @@ impl ObjectAttributeEntry {
   fn flip_x(self) -> bool {
     (self.attribute & 0b0100_0000) != 0
   }
+
   /// Whether or not this sprite should be flipped vertically
   fn flip_y(self) -> bool {
     (self.attribute & 0b1000_0000) != 0
   }
 
+  /// Palette for the sprite, in absolute terms (always in the range 4 to 7)
   fn palette(self) -> u8 {
     // NES has 8 total palettes; first 4 are for BG rendering, and last 4 are
     // for FG rendering.
@@ -97,6 +100,15 @@ impl ObjectAttributeEntry {
     // The palette index is 2 bits (0-4) so we can add 4 to get the absolute
     // palette index:
     4 + (self.attribute & 0b0000_0011)
+  }
+
+  /// Rendering priority; true = render sprites above background; false = render
+  /// sprites behind.
+  fn priority(self) -> bool {
+    // The default behavior (bit unset) is to render sprites in front of
+    // background, so we compare against zero to determine if sprites are
+    // rendered in front of background:
+    (self.attribute & 0b0010_0000) == 0
   }
 }
 
@@ -273,7 +285,7 @@ impl Ppu {
       palette,
       name_tables: [[0x00; 1024]; 2],
       pattern_tables: [[0x00; 4096]; 2],
-      screen: [[0x00, 0x00, 0x00, 0xFF]; SCREEN_W * SCREEN_H],
+      screen: [[0xFF, 0x00, 0xFF, 0xFF]; SCREEN_W * SCREEN_H],
 
       // Misc internal state
       address_latch: false,
@@ -301,15 +313,16 @@ impl Ppu {
       bg_shifter_attrib_hi: 0x0000,
 
       oam: [ObjectAttributeEntry {
-        y: 0xFF,
-        tile_id: 0xFF,
-        attribute: 0xFF,
-        x: 0xFF,
+        y: 0x00,
+        tile_id: 0x00,
+        attribute: 0x00,
+        x: 0x00,
       }; 64],
 
       oam_addr: 0x00,
 
       sprites_on_scanline: vec![],
+      sprites_on_scanline_contains_sprite_0: false,
     }
   }
 
@@ -400,26 +413,30 @@ impl Ppu {
       self.frame_complete = false;
     }
 
-    // Following this diagram:
-    // https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
-    //
-    // Note: The 0th scanline corresponds to the -1th scanline in our code.
-    //
-    // Does the 0th "dot" correspond to our -1th cycle or is this also 0?
-    let cycle_in_tile = (self.cycle - 1).rem_euclid(8);
-
     if self.scanline >= -1 && self.scanline < 240 {
       if self.scanline == 0 && self.cycle == 0 {
         // "Odd frame"
         self.cycle = 1;
       }
 
+      // Following this diagram:
+      // https://www.nesdev.org/w/images/default/4/4f/Ppu.svg
+      //
+      // Note: The 0th scanline corresponds to the -1th scanline in our code.
+      //
+      // Does the 0th "dot" correspond to our -1th cycle or is this also 0?
+      let cycle_in_tile = (self.cycle - 1).rem_euclid(8);
+
       if self.scanline == -1 && self.cycle == 1 {
         // Clear:
         // - VBlank
-        self.status = self.status.set_vblank(false);
-        // - Sprite 0: TODO
-        // - Overflow: TODO
+        // - Sprite 0
+        // - Overflow
+        self.status = self
+          .status
+          .set_vblank(false)
+          .set_sprite_zero_hit(false)
+          .set_sprite_overflow(false);
       }
 
       if (self.cycle >= 2 && self.cycle < 258) || (self.cycle >= 321 && self.cycle < 338) {
@@ -514,23 +531,33 @@ impl Ppu {
         self.transfer_address_y();
       }
 
-      // Foreground sprite rendering
+      // Foreground sprite "evaluation"
       if self.cycle == 257 && self.scanline >= 0 {
         let scanline = self.scanline as i16;
         let sprite_height = if self.control.tall_sprites() { 16 } else { 8 };
 
         self.sprites_on_scanline.clear();
+        self.sprites_on_scanline_contains_sprite_0 = false;
         // Determine which sprites will be visible on our scanline; we only draw
         // the first 8 that appear in the order of our OAM.
-        for sprite in self.oam {
+        for i in 0..self.oam.len() {
+          let sprite = self.oam[i];
           let y_diff = scanline - (sprite.y as i16);
+
           // First determine whether the sprite is within our Y range:
           if !(y_diff >= 0 && y_diff < sprite_height) {
             continue;
           }
 
-          self.sprites_on_scanline.push(sprite);
-          if self.sprites_on_scanline.len() == 8 {
+          if self.sprites_on_scanline.len() < 8 {
+            if i == 0 {
+              self.sprites_on_scanline_contains_sprite_0 = true;
+            }
+            self.sprites_on_scanline.push(sprite);
+          }
+
+          if self.sprites_on_scanline.len() >= 8 {
+            self.status = self.status.set_sprite_overflow(true);
             break;
           }
         }
@@ -553,13 +580,15 @@ impl Ppu {
     }
 
     if self.cycle >= 1 && self.cycle <= 256 && self.scanline >= 0 && self.scanline <= 239 {
-      let mut pixel: u8 = 0x00;
-      let mut palette: u8 = 0x00;
+      let mut fg_pixel: u8 = 0x00;
+      let mut fg_palette: u8 = 0x00;
+      let mut fg_priority: bool = false;
+      let mut fg_sprite_0_hit: bool = false;
+      if self.mask.render_sprites()
+        && !(self.mask.render_sprites_left() == false && self.cycle >= 1 && self.cycle <= 8)
+      {
+        // First determine which sprite pixel (if any) we need to render:
 
-      if self.mask.render_sprites() {
-        // First determine which sprite (if any) we need to render:
-
-        // For now, let's just draw the first one we encounter:
         for i in 0..self.sprites_on_scanline.len() {
           let sprite = self.sprites_on_scanline[i];
           let x_diff = (self.cycle as i16) - (sprite.x as i16) - 1;
@@ -568,10 +597,44 @@ impl Ppu {
           }
           let y_diff = (self.scanline as i16) - (sprite.y as i16) - 1;
 
+          // Table number to get our sprite graphics from.
+          // false = 0; true = 1
+          let table: bool;
+          let tile_id: u8;
+          match self.control.tall_sprites() {
+            // When we're working with tall sprites, each sprite takes up 2x the
+            // space, so we can only refer to 128 sprites per table instead of
+            // the usual 256.
+            //
+            // Rather than being limited to a single pattern table for sprites,
+            // we can use the unused bit in our tile ID byte to select which
+            // pattern table we want our sprite to be from.
+            //
+            // The NES designers use the least significant bit of our tile ID
+            // byte for this purpose.
+            true => {
+              table = (sprite.tile_id & 0b0000_0001) != 0;
+              // The tile_id
+              tile_id = if y_diff < 8 {
+                // Top 8x8 of the 8x16 sprite:
+                sprite.tile_id & 0b1111_1110
+              } else {
+                // Bottom 8x8 of the 8x16 sprite; effectively one full row down:
+                sprite.tile_id & 0b1111_1110
+              };
+            }
+            // Otherwise all sprites share the same table, controlled with a
+            // flag in the control register:
+            false => {
+              table = self.control.pattern_fg_table();
+              tile_id = sprite.tile_id;
+            }
+          };
+
           // Low/High tile byte
-          let base_addr = ((self.control.pattern_fg_table() as u16) * 0x1000)
-            .wrapping_add((sprite.tile_id as u16) << 4)
-            .wrapping_add(if sprite.flip_y() { 7 - y_diff } else { y_diff } as u16);
+          let base_addr = ((table as u16) << 12)
+            | ((tile_id as u16) << 4)
+            | (((if sprite.flip_y() { 7 - y_diff } else { y_diff }) as u16) & 0x0007);
 
           // We can shift our bit-fields by our x-diff so the most significant
           // bit is the current pixel value:
@@ -585,24 +648,80 @@ impl Ppu {
           tile_msb <<= x_diff;
           let p0_pixel = ((tile_lsb & 0b1000_0000) > 0) as u8;
           let p1_pixel = ((tile_msb & 0b1000_0000) > 0) as u8;
-          pixel = (p1_pixel << 1) | p0_pixel;
+          let pixel = (p1_pixel << 1) | p0_pixel;
           if pixel != 0x00 {
-            palette = sprite.palette();
+            fg_pixel = pixel;
+            fg_palette = sprite.palette();
+            fg_priority = sprite.priority();
+            if i == 0 && self.sprites_on_scanline_contains_sprite_0 {
+              fg_sprite_0_hit = true;
+            }
             break;
           }
         }
       }
 
-      if pixel == 0x00 && self.mask.render_background() {
+      let mut bg_pixel: u8 = 0x00;
+      let mut bg_palette: u8 = 0x00;
+      if self.mask.render_background()
+        && !(self.mask.render_background_left() == false && self.cycle >= 0 && self.cycle <= 8)
+      {
         let bit_mux: u16 = 0x8000 >> self.fine_x;
         let p0_pixel = ((self.bg_shifter_pattern_lo & bit_mux) > 0) as u8;
         let p1_pixel = ((self.bg_shifter_pattern_hi & bit_mux) > 0) as u8;
-        pixel = (p1_pixel << 1) | p0_pixel;
+        bg_pixel = (p1_pixel << 1) | p0_pixel;
 
         let bg_pal0 = ((self.bg_shifter_attrib_lo & bit_mux) > 0) as u8;
         let bg_pal1 = ((self.bg_shifter_attrib_hi & bit_mux) > 0) as u8;
-        palette = (bg_pal1 << 1) | bg_pal0;
+        bg_palette = (bg_pal1 << 1) | bg_pal0;
       }
+
+      let mut pixel = 0x00;
+      let mut palette = 0x00;
+      match (bg_pixel, fg_pixel) {
+        (0, 0) => {} // Nothing to render
+        // Only foreground to render:
+        (0, 1..) => {
+          pixel = fg_pixel;
+          palette = fg_palette;
+        }
+        // Only background to render:
+        (1.., 0) => {
+          pixel = bg_pixel;
+          palette = bg_palette;
+        }
+        // Could render either...
+        (1.., 1..) => {
+          // Here is where we need to do sprite zero hit detection.
+          //
+          // https://www.nesdev.org/wiki/PPU_OAM#Sprite_zero_hits
+          //
+          // Sprite 0 hit does not happen:
+          // - If background or sprite rendering is disabled in PPUMASK ($2001)
+          // - At x=0 to x=7 if the left-side clipping window is enabled (if bit
+          //   2 or bit 1 of PPUMASK is 0).
+          // - At x=255, for an obscure reason related to the pixel pipeline.
+          // - At any pixel where the background or sprite pixel is transparent
+          //   (2-bit color index from the CHR pattern is %00).
+          // - If sprite 0 hit has already occurred this frame. Bit 6 of
+          //   PPUSTATUS ($2002) is cleared to 0 at dot 1 of the pre-render
+          //   line. This means only the first sprite 0 hit in a frame can be
+          //   detected.
+
+          if fg_sprite_0_hit && self.cycle != 256 {
+            self.status = self.status.set_sprite_zero_hit(true);
+          }
+
+          // ...so determine this by our fg_priority flag:
+          if fg_priority {
+            pixel = fg_pixel;
+            palette = fg_palette;
+          } else {
+            pixel = bg_pixel;
+            palette = bg_palette;
+          }
+        }
+      };
 
       // Finally, let's draw our pixel at (scanline, cycle)
       let screen_x = self.cycle - 1;

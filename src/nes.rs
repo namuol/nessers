@@ -1,3 +1,4 @@
+use crate::apu::Apu;
 use crate::bus::Bus;
 use crate::bus_device::BusDevice;
 use crate::cart::Cart;
@@ -17,6 +18,7 @@ pub struct Nes {
 
   pub cpu: Cpu,
   pub ppu: Ppu,
+  pub apu: Apu,
   tick: u64,
   ram: Ram,
   ram_mirror: Mirror,
@@ -45,12 +47,15 @@ impl Nes {
     let ppu = Ppu::new(Palette::from_file(palette_filename)?);
     let ppu_registers_mirror = Mirror::new(0x2000, 8 * 1024);
 
+    let apu = Apu::new();
+
     let cart = Cart::from_file(cart_filename)?;
 
     Ok(Nes {
       tick: 0,
       cpu,
       ppu,
+      apu,
       cart,
       ram_mirror,
       ram,
@@ -70,6 +75,7 @@ impl Nes {
 
   pub fn clock(&mut self) {
     self.ppu.clock(&self.cart);
+    self.apu.clock();
     if self.tick % 3 == 0 {
       if self.dma_active {
         if self.dma_dummy {
@@ -227,6 +233,7 @@ impl Bus<Cpu> for Nes {
   fn write(&mut self, addr: u16, data: u8) {
     None // Hehe, using None here just for formatting purposes:
       .or_else(|| self.cart.cpu_mapper.write(addr, data))
+      .or_else(|| self.apu.cpu_write(addr, data))
       .or_else(|| {
         // Writing to 0x4014
         //
@@ -415,12 +422,15 @@ mod tests {
     });
     let ppu_registers_mirror = Mirror::new(0x2000, 8 * 1024);
 
+    let apu = Apu::new();
+
     let cart = Cart::new(&cart_data).unwrap();
 
     Nes {
       tick: 0,
       cpu,
       ppu,
+      apu,
       cart,
       ram_mirror,
       ram,
