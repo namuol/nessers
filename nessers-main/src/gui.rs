@@ -143,7 +143,7 @@ impl Gui {
   fn ui(&mut self, ctx: &Context, nes: &mut Nes) -> bool {
     egui::TopBottomPanel::top("menubar_container").show(ctx, |ui| {
       egui::menu::bar(ui, |ui| {
-        ui.menu_button("File", |ui| {
+        ui.menu_button("Debug", |ui| {
           if ui.button("Bus editor").clicked() {
             self.bus_open = true;
             ui.close_menu();

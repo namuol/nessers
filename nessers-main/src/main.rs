@@ -115,16 +115,19 @@ fn main() -> Result<(), Error> {
         }
 
         if input.key_pressed(VirtualKeyCode::F) {
+          nes_debugger.dirty = true;
           nes_debugger.playing = false;
           nes_debugger.nes.frame();
         }
 
         if input.key_pressed(VirtualKeyCode::Period) {
+          nes_debugger.dirty = true;
           nes_debugger.playing = false;
           nes_debugger.nes.clock();
         }
 
         if input.key_pressed(VirtualKeyCode::Slash) {
+          nes_debugger.dirty = true;
           nes_debugger.playing = false;
           nes_debugger.nes.step();
         }
