@@ -566,8 +566,8 @@ mod tests {
   #[test]
   fn nestest() {
     let mut nes = match Nes::new(
-      "src/test_fixtures/nestest.nes",
-      "src/test_fixtures/ntscpalette.pal",
+      "nessers-main/src/test_fixtures/nestest.nes",
+      "nessers-main/src/test_fixtures/ntscpalette.pal",
     ) {
       Ok(n) => n,
       Err(msg) => panic!("{}", msg),
@@ -576,7 +576,7 @@ mod tests {
     nes.cpu.pc = 0xC000;
     let mut line_num = 0;
     // First few traces:
-    read_lines("src/test_fixtures/nestest.log")
+    read_lines("nessers-main/src/test_fixtures/nestest.log")
       .unwrap()
       .for_each(|line| {
         line_num += 1;
@@ -604,8 +604,8 @@ mod tests {
   //   }
   //   let mut nes = match Nes::new(
   //     // You'll need to provide your own backup of Super Mario Bros here:
-  //     "src/test_fixtures/smb.nes",
-  //     "src/test_fixtures/ntscpalette.pal",
+  //     "nessers-main/src/test_fixtures/smb.nes",
+  //     "nessers-main/src/test_fixtures/ntscpalette.pal",
   //   ) {
   //     Ok(n) => n,
   //     Err(msg) => panic!("{}", msg),
@@ -625,7 +625,7 @@ mod tests {
   //   ];
 
   //   // First few traces:
-  //   let lines: Vec<String> = read_lines("src/test_fixtures/smb.log")
+  //   let lines: Vec<String> = read_lines("nessers-main/src/test_fixtures/smb.log")
   //     .unwrap()
   //     .map(|line| line.unwrap())
   //     .collect();

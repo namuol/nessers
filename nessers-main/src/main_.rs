@@ -128,7 +128,7 @@ impl Game for NESDebugger {
         .and_then(|d| d.deserialize())
         .unwrap_or_else(|e| e.exit());
 
-      let mut nes = match Nes::new(&args.arg_rom, "src/test_fixtures/ntscpalette.pal") {
+      let mut nes = match Nes::new(&args.arg_rom, "nessers-main/src/test_fixtures/ntscpalette.pal") {
         Ok(n) => n,
         Err(msg) => panic!("{}", msg),
       };

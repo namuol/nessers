@@ -2897,7 +2897,7 @@ mod tests {
 
   impl DeviceList {
     pub fn new(devices: Vec<Box<dyn BusDevice>>) -> DeviceList {
-      let cart = Cart::from_file("src/test_fixtures/nestest.nes").unwrap();
+      let cart = Cart::from_file("nessers-main/src/test_fixtures/nestest.nes").unwrap();
       DeviceList { devices, cart }
     }
   }

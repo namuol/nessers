@@ -64,7 +64,7 @@ mod tests {
 
   #[test]
   fn ram_mirror() {
-    let mut cart = Cart::from_file("src/test_fixtures/nestest.nes").unwrap();
+    let mut cart = Cart::from_file("nessers-main/src/test_fixtures/nestest.nes").unwrap();
     let mut ram = Ram::new(0x0000, 32 * 1024);
     let mut mirror = Mirror::new(0x0000, 2 * 32 * 1024);
     mirror.write(&mut ram, 0x0000, 42, &mut cart);
