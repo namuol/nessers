@@ -285,7 +285,7 @@ impl Ppu {
       palette,
       name_tables: [[0x00; 1024]; 2],
       pattern_tables: [[0x00; 4096]; 2],
-      screen: [[0x00, 0x00, 0x00, 0xFF]; SCREEN_W * SCREEN_H],
+      screen: [[0xFF, 0x00, 0xFF, 0xFF]; SCREEN_W * SCREEN_H],
 
       // Misc internal state
       address_latch: false,
