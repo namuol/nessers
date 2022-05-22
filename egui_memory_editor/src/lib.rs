@@ -256,6 +256,13 @@ impl MemoryEditor {
                     // offset of this scroll area is decremented for no reason! This is a temporary workaround for that.
                     scroll_input_workaround(ui);
 
+                    // Need to extract these _out_ of the function since this function is
+                    // only used to render one row at a time, thus values that span multiple
+                    // rows are only highlighted for the first row:
+                    let mut to_emphasize_left: usize = 0;
+                    let mut to_emphasize_bg_color: Color32 = Rgba::from_rgb(1.0, 1.0, 1.0).into();
+                    let mut to_emphasize_fg_color: Color32 = Rgba::from_rgb(0.0, 0.0, 0.0).into();
+
                     for start_row in line_range.clone() {
                         let start_address = address_space.start + (start_row * column_count);
                         let line_range = start_address..start_address + column_count;
@@ -267,7 +274,18 @@ impl MemoryEditor {
 
                         ui.label(start_text);
 
-                        self.draw_memory_values(ui, mem, &mut read_fn, &mut write_fn, &mut highlight_fn, start_address, &address_space);
+                        self.draw_memory_values(
+                            ui,
+                            mem,
+                            &mut read_fn,
+                            &mut write_fn,
+                            &mut highlight_fn,
+                            start_address,
+                            &address_space,
+                            &mut to_emphasize_left,
+                            &mut to_emphasize_bg_color,
+                            &mut to_emphasize_fg_color
+                        );
 
                         if show_ascii {
                             self.draw_ascii_sidebar(ui, mem, &mut read_fn, start_address, &address_space);
@@ -291,13 +309,13 @@ impl MemoryEditor {
         highlight_fn: &mut Option<impl FnMut(&mut T, Address) -> Option<(usize, Color32, Color32)>>,
         start_address: Address,
         address_space: &Range<Address>,
+        to_emphasize_left: &mut usize,
+        to_emphasize_bg_color: &mut Color32,
+        to_emphasize_fg_color: &mut Color32,
     ) {
         let frame_data = &mut self.frame_data;
         let options = &self.options;
         let mut read_only = frame_data.selected_edit_address.is_none() || write_fn.is_none();
-        let mut to_emphasize_left: usize = 0;
-        let mut to_emphasize_bg_color: Color32 = Rgba::from_rgb(1.0, 1.0, 1.0).into();
-        let mut to_emphasize_fg_color: Color32 = Rgba::from_rgb(0.0, 0.0, 0.0).into();
 
         // div_ceil
         for grid_column in 0..(options.column_count + 7) / 8 {
@@ -380,15 +398,15 @@ impl MemoryEditor {
                             Some(highlight) => highlight(mem, memory_address),
                             None => None,
                         } {
-                            to_emphasize_left = std::cmp::max(to_emphasize_left, size);
-                            to_emphasize_bg_color = bg_color;
-                            to_emphasize_fg_color = fg_color;
+                            *to_emphasize_left = std::cmp::max(*to_emphasize_left, size);
+                            *to_emphasize_bg_color = bg_color;
+                            *to_emphasize_fg_color = fg_color;
                         }
 
-                        if to_emphasize_left > 0 {
+                        if *to_emphasize_left > 0 {
                             text = text.color(Rgba::from_rgb(0.0, 0.0, 0.0));
                             text = text.background_color(Rgba::from_rgb(1.0, 0.0, 1.0));
-                            to_emphasize_left -= 1;
+                            *to_emphasize_left -= 1;
                         }
 
                         if frame_data.should_subtle_highlight(memory_address, options.data_preview.selected_data_format)

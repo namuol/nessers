@@ -227,21 +227,21 @@ impl Gui {
         // Highlight
         |nes, addr| match &self.search_pattern {
           Some(pattern) => {
-            let mut bytes: Vec<u8> = vec![];
-
+            // Read ahead until we hit something that isn't in our pattern
             for i in 0..pattern.len() {
-              bytes.push(nes.safe_cpu_read((addr + i) as u16));
+              let byte = nes.safe_cpu_read((addr + i) as u16);
+              if byte != pattern[i] {
+                return None;
+              }
             }
 
-            if bytes == *pattern {
-              Some((
-                pattern.len(),
-                egui::Color32::LIGHT_RED,
-                egui::Color32::BLACK,
-              ))
-            } else {
-              None
-            }
+            // ...if we get here then we know our pattern matches the next N
+            // bytes:
+            Some((
+              pattern.len(),
+              egui::Color32::LIGHT_RED,
+              egui::Color32::BLACK,
+            ))
           }
           None => None,
         },
