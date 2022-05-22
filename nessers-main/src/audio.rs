@@ -16,7 +16,14 @@ impl AudioDevice {
     let device = host.default_output_device().unwrap();
     println!("Output device: {}", device.name().unwrap());
 
-    let config = device.default_output_config().unwrap();
+    // Force 44.1kHz
+    let config = device
+      .supported_output_configs()
+      .unwrap()
+      .next()
+      .unwrap()
+      .with_sample_rate(cpal::SampleRate(44100));
+
     let buffer_size = config.buffer_size().clone();
     println!("Default output config: {:?}", config);
 
@@ -56,16 +63,15 @@ where
 {
   let channels = config.channels as usize;
 
-  // Produce a sinusoid of maximum amplitude.
-  // let next_value = move || rx.recv().unwrap();
+  let next_value = move || rx.recv().unwrap();
 
-  let next_value = move || match rx.try_recv() {
-    Ok(v) => v,
-    Err(_) => {
-      // println!("Nothing sending...");
-      0.0
-    }
-  };
+  // let next_value = move || match rx.try_recv() {
+  //   Ok(v) => v,
+  //   Err(_) => {
+  //     // println!("Nothing sending...");
+  //     0.0
+  //   }
+  // };
 
   device
     .build_output_stream(

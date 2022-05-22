@@ -99,7 +99,7 @@ fn main() -> Result<(), Error> {
   let mut audio_buffer: Vec<f32> = vec![];
   let mut nes_debugger = NesDebugger::new(WIDTH, HEIGHT);
   let mut egui_has_focus = false;
-
+  let mut odd_frame = false;
   // Handle input and drive UI & screen rendering:
   event_loop.run(move |event, _, control_flow| {
     if input.update(&event) {
@@ -174,23 +174,27 @@ fn main() -> Result<(), Error> {
       }
       // Draw the current frame
       Event::RedrawRequested(_) => {
-        // Run our clock until a frame is ready, gathering samples as we go...
-        loop {
-          // Prevent buffer overrun:
-          if audio_buffer.len() > (max_audio_buffer_size * 4) {
-            break;
-          }
+        if odd_frame {
+          // Run our clock until a frame is ready, gathering samples as we go...
+          loop {
+            // Prevent buffer overrun:
+            if audio_buffer.len() > max_audio_buffer_size {
+              break;
+            }
 
-          nes.clock();
+            nes.clock();
 
-          if nes.apu.sample_ready {
-            audio_buffer.push(nes.apu.sample());
-          }
+            if nes.apu.sample_ready {
+              audio_buffer.push(nes.apu.sample());
+            }
 
-          if nes.ppu.frame_complete && audio_buffer.len() > min_audio_buffer_size {
-            break;
+            if nes.ppu.frame_complete && audio_buffer.len() > min_audio_buffer_size {
+              break;
+            }
           }
         }
+
+        odd_frame = !odd_frame;
 
         let mut last_sample_idx = 0;
         // Send samples until there's nothing to receive:
@@ -199,7 +203,7 @@ fn main() -> Result<(), Error> {
           match sample_tx.send(audio_buffer[i]) {
             Ok(_) => { /* keep sending */ }
             Err(_) => {
-              println!("Nothing receiving...");
+              println!("Nothing receiving... buffer overrun?");
               break;
             }
           }

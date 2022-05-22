@@ -57,10 +57,10 @@ impl Apu {
   }
 
   pub fn clock(&mut self) {
-    self.sample_clock = (self.sample_clock + 1.0) % APU_SAMPLE_FREQ;
-
     self.time_until_next_sample -= TIME_PER_CPU_CLOCK;
     if self.time_until_next_sample < 0.0 {
+      // Simple sin wave for now:
+      self.sample_clock = (self.sample_clock + 1.0) % APU_SAMPLE_FREQ;
       self.pulse_1_sample =
         (self.sample_clock * 440.0 * 2.0 * std::f32::consts::PI / APU_SAMPLE_FREQ).sin() * 0.1;
       self.sample_ready = true;
