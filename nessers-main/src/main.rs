@@ -1,9 +1,10 @@
 #[macro_use]
 extern crate maplit;
 
-#[macro_use]
-extern crate lazy_static;
+use std::sync::{mpsc, Mutex};
 
+use audio::AudioDevice;
+use cpal::traits::StreamTrait;
 use docopt::Docopt;
 use log::error;
 use pixels::{Error, Pixels, SurfaceTexture};
@@ -79,17 +80,27 @@ fn main() -> Result<(), Error> {
     .and_then(|d| d.deserialize())
     .unwrap_or_else(|e| e.exit());
 
-  let mut nes = match Nes::new(&args.arg_rom, "nessers-main/src/test_fixtures/ntscpalette.pal") {
+  let mut nes = match Nes::new(
+    &args.arg_rom,
+    "nessers-main/src/test_fixtures/ntscpalette.pal",
+  ) {
     Ok(n) => n,
     Err(msg) => panic!("{}", msg),
   };
-
   nes.reset();
   nes.step();
 
-  let mut nes_debugger = NesDebugger::new(WIDTH, HEIGHT, nes);
+  // I could probably abstract some of this...
+  let (sample_tx, sample_rx) = mpsc::channel();
+  let audio_device = AudioDevice::init(sample_rx);
+  let min_audio_buffer_size = audio_device.min_buffer_size;
+  let max_audio_buffer_size = audio_device.max_buffer_size;
+
+  let mut audio_buffer: Vec<f32> = vec![];
+  let mut nes_debugger = NesDebugger::new(WIDTH, HEIGHT);
   let mut egui_has_focus = false;
 
+  // Handle input and drive UI & screen rendering:
   event_loop.run(move |event, _, control_flow| {
     if input.update(&event) {
       if !egui_has_focus {
@@ -100,17 +111,17 @@ fn main() -> Result<(), Error> {
         }
 
         // Player 1 controls
-        nes_debugger.nes.peripherals.controllers[0].a = input.key_held(VirtualKeyCode::X);
-        nes_debugger.nes.peripherals.controllers[0].b = input.key_held(VirtualKeyCode::Z);
-        nes_debugger.nes.peripherals.controllers[0].select = input.key_held(VirtualKeyCode::RShift);
-        nes_debugger.nes.peripherals.controllers[0].start = input.key_held(VirtualKeyCode::Return);
-        nes_debugger.nes.peripherals.controllers[0].up = input.key_held(VirtualKeyCode::Up);
-        nes_debugger.nes.peripherals.controllers[0].down = input.key_held(VirtualKeyCode::Down);
-        nes_debugger.nes.peripherals.controllers[0].left = input.key_held(VirtualKeyCode::Left);
-        nes_debugger.nes.peripherals.controllers[0].right = input.key_held(VirtualKeyCode::Right);
+        nes.peripherals.controllers[0].a = input.key_held(VirtualKeyCode::X);
+        nes.peripherals.controllers[0].b = input.key_held(VirtualKeyCode::Z);
+        nes.peripherals.controllers[0].select = input.key_held(VirtualKeyCode::RShift);
+        nes.peripherals.controllers[0].start = input.key_held(VirtualKeyCode::Return);
+        nes.peripherals.controllers[0].up = input.key_held(VirtualKeyCode::Up);
+        nes.peripherals.controllers[0].down = input.key_held(VirtualKeyCode::Down);
+        nes.peripherals.controllers[0].left = input.key_held(VirtualKeyCode::Left);
+        nes.peripherals.controllers[0].right = input.key_held(VirtualKeyCode::Right);
 
         if input.key_pressed(VirtualKeyCode::R) {
-          nes_debugger.nes.reset();
+          nes.reset();
         }
 
         if input.key_pressed(VirtualKeyCode::Space) {
@@ -118,21 +129,18 @@ fn main() -> Result<(), Error> {
         }
 
         if input.key_pressed(VirtualKeyCode::F) {
-          nes_debugger.dirty = true;
           nes_debugger.playing = false;
-          nes_debugger.nes.frame();
+          nes.frame();
         }
 
         if input.key_pressed(VirtualKeyCode::Period) {
-          nes_debugger.dirty = true;
           nes_debugger.playing = false;
-          nes_debugger.nes.clock();
+          nes.clock();
         }
 
         if input.key_pressed(VirtualKeyCode::Slash) {
-          nes_debugger.dirty = true;
           nes_debugger.playing = false;
-          nes_debugger.nes.step();
+          nes.step();
         }
       }
 
@@ -166,11 +174,43 @@ fn main() -> Result<(), Error> {
       }
       // Draw the current frame
       Event::RedrawRequested(_) => {
+        // Run our clock until a frame is ready, gathering samples as we go...
+        loop {
+          // Prevent buffer overrun:
+          if audio_buffer.len() > (max_audio_buffer_size * 4) {
+            break;
+          }
+
+          nes.clock();
+
+          if nes.apu.sample_ready {
+            audio_buffer.push(nes.apu.sample());
+          }
+
+          if nes.ppu.frame_complete && audio_buffer.len() > min_audio_buffer_size {
+            break;
+          }
+        }
+
+        let mut last_sample_idx = 0;
+        // Send samples until there's nothing to receive:
+        for i in 0..audio_buffer.len() {
+          last_sample_idx = i;
+          match sample_tx.send(audio_buffer[i]) {
+            Ok(_) => { /* keep sending */ }
+            Err(_) => {
+              println!("Nothing receiving...");
+              break;
+            }
+          }
+        }
+        audio_buffer.drain(0..last_sample_idx);
+
         // Draw the world
-        nes_debugger.draw(pixels.get_frame());
+        nes_debugger.draw(pixels.get_frame(), &nes);
 
         // Prepare Dear ImGui
-        framework.prepare(&window, &mut nes_debugger.nes, &mut egui_has_focus);
+        framework.prepare(&window, &mut nes, &mut egui_has_focus);
 
         // Render everything together
         let render_result = pixels.render_with(|encoder, render_target, context| {
@@ -200,22 +240,16 @@ fn main() -> Result<(), Error> {
 struct NesDebugger {
   width: i16,
   height: i16,
-  nes: Nes,
   playing: bool,
-  dirty: bool,
-  odd: bool,
 }
 
 impl NesDebugger {
   /// Create a new `World` instance that can draw a moving box.
-  pub fn new(width: u32, height: u32, nes: Nes) -> Self {
+  pub fn new(width: u32, height: u32) -> Self {
     Self {
       width: width as i16,
       height: height as i16,
-      nes,
       playing: false,
-      dirty: false,
-      odd: false,
     }
   }
 
@@ -223,33 +257,21 @@ impl NesDebugger {
   pub fn resize(&mut self, width: u32, height: u32) {
     self.width = width as i16;
     self.height = height as i16;
-    self.dirty = true;
   }
 
   /// Draw the `World` state to the frame buffer.
   ///
   /// Assumes the default texture format: `wgpu::TextureFormat::Rgba8UnormSrgb`
-  pub fn draw(&mut self, frame: &mut [u8]) {
-    let mut frame_dirty = false;
-    // My display is 120hz so I'm just brute forcing this for now lol:
-    if self.playing {
-      if self.odd {
-        self.nes.frame();
-        frame_dirty = true;
-      }
-      self.odd = !self.odd;
-    }
-
-    if self.dirty || frame_dirty {
-      for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
-        let x = (i % self.width as usize) / 2;
-        let y = (i / self.width as usize) / 2;
-        if x < SCREEN_W && y > 8 && y < (SCREEN_H + 8) {
-          let ppu_screen_idx = (y - 8) * SCREEN_W + x;
-          pixel.copy_from_slice(&self.nes.ppu.screen[ppu_screen_idx]);
-        } else if self.dirty {
-          pixel.copy_from_slice(&[0x00, 0x00, 0x00, 0xFF]);
-        }
+  pub fn draw(&mut self, frame: &mut [u8], nes: &Nes) {
+    // For now, just always redraw:
+    for (i, pixel) in frame.chunks_exact_mut(4).enumerate() {
+      let x = (i % self.width as usize) / 2;
+      let y = (i / self.width as usize) / 2;
+      if x < SCREEN_W && y > 8 && y < (SCREEN_H + 8) {
+        let ppu_screen_idx = (y - 8) * SCREEN_W + x;
+        pixel.copy_from_slice(&nes.ppu.screen[ppu_screen_idx]);
+      } else {
+        pixel.copy_from_slice(&[0x00, 0x00, 0x00, 0xFF]);
       }
     }
   }
