@@ -93,6 +93,7 @@ fn main() -> Result<(), Error> {
   // I could probably abstract some of this...
   let (sample_tx, sample_rx) = mpsc::channel();
   let audio_device = AudioDevice::init(sample_rx);
+  audio_device.stream.pause().unwrap();
   let min_audio_buffer_size = audio_device.min_buffer_size;
   let max_audio_buffer_size = audio_device.max_buffer_size;
 
@@ -126,20 +127,28 @@ fn main() -> Result<(), Error> {
 
         if input.key_pressed(VirtualKeyCode::Space) {
           nes_debugger.playing = !nes_debugger.playing;
+          if nes_debugger.playing {
+            audio_device.stream.play().unwrap();
+          } else {
+            audio_device.stream.pause().unwrap();
+          }
         }
 
         if input.key_pressed(VirtualKeyCode::F) {
           nes_debugger.playing = false;
+          audio_device.stream.pause().unwrap();
           nes.frame();
         }
 
         if input.key_pressed(VirtualKeyCode::Period) {
           nes_debugger.playing = false;
+          audio_device.stream.pause().unwrap();
           nes.clock();
         }
 
         if input.key_pressed(VirtualKeyCode::Slash) {
           nes_debugger.playing = false;
+          audio_device.stream.pause().unwrap();
           nes.step();
         }
       }
@@ -174,10 +183,13 @@ fn main() -> Result<(), Error> {
       }
       // Draw the current frame
       Event::RedrawRequested(_) => {
-        if odd_frame {
+        // HACK: My display is 120hz; what I really should be doing is checking
+        // a time delta to determine whether to let the emulator run a frame
+        // here...
+        if nes_debugger.playing && odd_frame {
           // Run our clock until a frame is ready, gathering samples as we go...
           loop {
-            // Prevent buffer overrun:
+            // Prevent buffer overrun; this could result in a dropped frame:
             if audio_buffer.len() > max_audio_buffer_size {
               break;
             }
@@ -188,7 +200,9 @@ fn main() -> Result<(), Error> {
               audio_buffer.push(nes.apu.sample());
             }
 
-            if nes.ppu.frame_complete && audio_buffer.len() > min_audio_buffer_size {
+            if nes.ppu.frame_complete && audio_buffer.len() > (min_audio_buffer_size * 2) {
+              // Draw the world
+              nes_debugger.draw(pixels.get_frame(), &nes);
               break;
             }
           }
@@ -198,7 +212,7 @@ fn main() -> Result<(), Error> {
 
         let mut last_sample_idx = 0;
         // Send samples until there's nothing to receive:
-        for i in 0..audio_buffer.len() {
+        for i in 0..std::cmp::min(max_audio_buffer_size, audio_buffer.len()) {
           last_sample_idx = i;
           match sample_tx.send(audio_buffer[i]) {
             Ok(_) => { /* keep sending */ }
@@ -209,9 +223,6 @@ fn main() -> Result<(), Error> {
           }
         }
         audio_buffer.drain(0..last_sample_idx);
-
-        // Draw the world
-        nes_debugger.draw(pixels.get_frame(), &nes);
 
         // Prepare Dear ImGui
         framework.prepare(&window, &mut nes, &mut egui_has_focus);
