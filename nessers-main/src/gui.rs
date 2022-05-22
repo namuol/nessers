@@ -24,6 +24,8 @@ pub(crate) struct Framework {
 struct Gui {
   bus_open: bool,
   memory_editor: MemoryEditor,
+  search_string: String,
+  search_pattern: Option<Vec<u8>>,
 }
 
 impl Framework {
@@ -134,6 +136,8 @@ impl Gui {
     Self {
       bus_open: false,
       memory_editor,
+      search_string: String::new(),
+      search_pattern: None,
     }
   }
 
@@ -152,13 +156,97 @@ impl Gui {
       });
     });
 
-    self.memory_editor.window_ui(
-      ctx,
-      &mut self.bus_open,
-      nes,
-      |nes, address| Some(nes.safe_cpu_read(address as u16)),
-      |nes, address, value| nes.cpu_write(address as u16, value),
-    );
+    let mut bytes: Vec<u8> = vec![];
+
+    if self.search_string.len() > 0 {
+      let mut nybble_idx: usize = 0;
+      for i in 0..self.search_string.len() {
+        let maybe_nybble: Option<u8> = match self.search_string.chars().nth(i).unwrap() {
+          '0' => Some(0x00),
+          '1' => Some(0x01),
+          '2' => Some(0x02),
+          '3' => Some(0x03),
+          '4' => Some(0x04),
+          '5' => Some(0x05),
+          '6' => Some(0x06),
+          '7' => Some(0x07),
+          '8' => Some(0x08),
+          '9' => Some(0x09),
+          'a' | 'A' => Some(0x0A),
+          'b' | 'B' => Some(0x0B),
+          'c' | 'C' => Some(0x0C),
+          'd' | 'D' => Some(0x0D),
+          'e' | 'E' => Some(0x0E),
+          'f' | 'F' => Some(0x0F),
+          _ => None,
+        };
+
+        if let Some(nybble) = maybe_nybble {
+          let byte_idx = nybble_idx / 2;
+          if byte_idx >= bytes.len() {
+            bytes.push(0x00);
+          }
+          let hi_nybble = nybble_idx % 2 == 0;
+          if hi_nybble {
+            bytes[byte_idx] |= nybble << 4;
+          } else {
+            bytes[byte_idx] |= nybble;
+          }
+          nybble_idx += 1;
+        }
+      }
+    }
+
+    if bytes.len() > 0 {
+      self.search_pattern = Some(bytes);
+    } else {
+      self.search_pattern = None;
+    }
+
+    egui::Window::new("Bus editor").show(ctx, |ui| {
+      ui.label("Search:");
+      ui.text_edit_singleline(&mut self.search_string);
+      if let Some(search_pattern) = self.search_pattern.clone() {
+        ui.label(
+          search_pattern
+            .iter()
+            .map(|b| format!("{:02X}", b))
+            .collect::<Vec<String>>()
+            .join(" "),
+        );
+      }
+
+      self.memory_editor.draw_editor_contents(
+        ui,
+        // &mut self.bus_open,
+        nes,
+        // Read
+        |nes, addr| Some(nes.safe_cpu_read(addr as u16)),
+        // Write
+        |nes, addr, value| nes.cpu_write(addr as u16, value),
+        // Highlight
+        |nes, addr| match &self.search_pattern {
+          Some(pattern) => {
+            let mut bytes: Vec<u8> = vec![];
+
+            for i in 0..pattern.len() {
+              bytes.push(nes.safe_cpu_read((addr + i) as u16));
+            }
+
+            if bytes == *pattern {
+              Some((
+                pattern.len(),
+                egui::Color32::LIGHT_RED,
+                egui::Color32::BLACK,
+              ))
+            } else {
+              None
+            }
+          }
+          None => None,
+        },
+      )
+    });
 
     // It's not obvious at all but this checks to see if any UI has focus, and
     // if it does, returns `Some(...)`.

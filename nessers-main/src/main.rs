@@ -1,6 +1,9 @@
 #[macro_use]
 extern crate maplit;
 
+#[macro_use]
+extern crate lazy_static;
+
 use docopt::Docopt;
 use log::error;
 use pixels::{Error, Pixels, SurfaceTexture};
@@ -153,8 +156,6 @@ fn main() -> Result<(), Error> {
         }
       }
 
-      // Update internal state and request a redraw
-      nes_debugger.update();
       window.request_redraw();
     }
 
@@ -217,9 +218,6 @@ impl NesDebugger {
       odd: false,
     }
   }
-
-  /// Update the `World` internal state; bounce the box around the screen.
-  pub fn update(&mut self) {}
 
   /// Resize the world
   pub fn resize(&mut self, width: u32, height: u32) {

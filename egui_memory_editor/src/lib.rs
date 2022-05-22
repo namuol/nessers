@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::ops::Range;
 
-use egui::{Context, Label, RichText, ScrollArea, Sense, TextEdit, Ui, Vec2, Widget, Window};
+use egui::{Color32, Context, Label, Rgba, RichText, ScrollArea, Sense, TextEdit, Ui, Vec2, Widget, Window};
 
 use crate::option_data::{BetweenFrameData, MemoryEditorOptions};
 
@@ -91,8 +91,16 @@ impl MemoryEditor {
     ) {
         // This needs to exist due to the fact we want to use generics, and `Option` needs to know the size of its contents.
         type DummyWriteFunction<T> = fn(&mut T, Address, u8);
+        type DummyHighlightFunction<T> = fn(&mut T, Address) -> Option<(usize, Color32, Color32)>;
 
-        self.window_ui_impl(ctx, is_open, mem, read_fn, None::<DummyWriteFunction<T>>);
+        self.window_ui_impl(
+            ctx,
+            is_open,
+            mem,
+            read_fn,
+            None::<DummyWriteFunction<T>>,
+            None::<DummyHighlightFunction<T>>,
+        );
     }
 
     /// Create a window and render the memory editor contents within.
@@ -115,8 +123,9 @@ impl MemoryEditor {
         mem: &mut T,
         read_fn: impl FnMut(&mut T, Address) -> Option<u8>,
         write_fn: impl FnMut(&mut T, Address, u8),
+        highlight_fn: impl FnMut(&mut T, Address) -> Option<(usize, Color32, Color32)>,
     ) {
-        self.window_ui_impl(ctx, is_open, mem, read_fn, Some(write_fn));
+        self.window_ui_impl(ctx, is_open, mem, read_fn, Some(write_fn), Some(highlight_fn));
     }
 
     fn window_ui_impl<T: ?Sized>(
@@ -126,6 +135,7 @@ impl MemoryEditor {
         mem: &mut T,
         read_fn: impl FnMut(&mut T, Address) -> Option<u8>,
         write_fn: Option<impl FnMut(&mut T, Address, u8)>,
+        highlight_fn: Option<impl FnMut(&mut T, Address) -> Option<(usize, Color32, Color32)>>,
     ) {
         Window::new(self.window_name.clone())
             .open(is_open)
@@ -134,7 +144,7 @@ impl MemoryEditor {
             .resizable(true)
             .show(ctx, |ui| {
                 self.shrink_window_ui(ui);
-                self.draw_editor_contents_impl(ui, mem, read_fn, write_fn);
+                self.draw_editor_contents_impl(ui, mem, read_fn, write_fn, highlight_fn);
             });
     }
 
@@ -153,8 +163,15 @@ impl MemoryEditor {
     ) {
         // This needs to exist due to the fact we want to use generics, and `Option` needs to know the size of its contents.
         type DummyWriteFunction<T> = fn(&mut T, Address, u8);
+        type DummyHighlightFunction<T> = fn(&mut T, Address) -> Option<(usize, Color32, Color32)>;
 
-        self.draw_editor_contents_impl(ui, mem, read_fn, None::<DummyWriteFunction<T>>);
+        self.draw_editor_contents_impl(
+            ui,
+            mem,
+            read_fn,
+            None::<DummyWriteFunction<T>>,
+            None::<DummyHighlightFunction<T>>,
+        );
     }
 
     /// Draws the actual memory viewer/editor.
@@ -170,8 +187,9 @@ impl MemoryEditor {
         mem: &mut T,
         read_fn: impl FnMut(&mut T, Address) -> Option<u8>,
         write_fn: impl FnMut(&mut T, Address, u8),
+        highlight_fn: impl FnMut(&mut T, Address) -> Option<(usize, Color32, Color32)>,
     ) {
-        self.draw_editor_contents_impl(ui, mem, read_fn, Some(write_fn));
+        self.draw_editor_contents_impl(ui, mem, read_fn, Some(write_fn), Some(highlight_fn));
     }
 
     fn draw_editor_contents_impl<T: ?Sized>(
@@ -180,6 +198,7 @@ impl MemoryEditor {
         mem: &mut T,
         mut read_fn: impl FnMut(&mut T, Address) -> Option<u8>,
         mut write_fn: Option<impl FnMut(&mut T, Address, u8)>,
+        mut highlight_fn: Option<impl FnMut(&mut T, Address) -> Option<(usize, Color32, Color32)>>,
     ) {
         assert!(
             !self.address_ranges.is_empty(),
@@ -248,7 +267,7 @@ impl MemoryEditor {
 
                         ui.label(start_text);
 
-                        self.draw_memory_values(ui, mem, &mut read_fn, &mut write_fn, start_address, &address_space);
+                        self.draw_memory_values(ui, mem, &mut read_fn, &mut write_fn, &mut highlight_fn, start_address, &address_space);
 
                         if show_ascii {
                             self.draw_ascii_sidebar(ui, mem, &mut read_fn, start_address, &address_space);
@@ -269,12 +288,16 @@ impl MemoryEditor {
         mem: &mut T,
         read_fn: &mut impl FnMut(&mut T, Address) -> Option<u8>,
         write_fn: &mut Option<impl FnMut(&mut T, Address, u8)>,
+        highlight_fn: &mut Option<impl FnMut(&mut T, Address) -> Option<(usize, Color32, Color32)>>,
         start_address: Address,
         address_space: &Range<Address>,
     ) {
         let frame_data = &mut self.frame_data;
         let options = &self.options;
         let mut read_only = frame_data.selected_edit_address.is_none() || write_fn.is_none();
+        let mut to_emphasize_left: usize = 0;
+        let mut to_emphasize_bg_color: Color32 = Rgba::from_rgb(1.0, 1.0, 1.0).into();
+        let mut to_emphasize_fg_color: Color32 = Rgba::from_rgb(0.0, 0.0, 0.0).into();
 
         // div_ceil
         for grid_column in 0..(options.column_count + 7) / 8 {
@@ -351,6 +374,21 @@ impl MemoryEditor {
 
                         if frame_data.should_highlight(memory_address) {
                             text = text.color(options.highlight_text_colour);
+                        }
+
+                        if let Some((size, bg_color, fg_color)) = match highlight_fn {
+                            Some(highlight) => highlight(mem, memory_address),
+                            None => None,
+                        } {
+                            to_emphasize_left = std::cmp::max(to_emphasize_left, size);
+                            to_emphasize_bg_color = bg_color;
+                            to_emphasize_fg_color = fg_color;
+                        }
+
+                        if to_emphasize_left > 0 {
+                            text = text.color(Rgba::from_rgb(0.0, 0.0, 0.0));
+                            text = text.background_color(Rgba::from_rgb(1.0, 0.0, 1.0));
+                            to_emphasize_left -= 1;
                         }
 
                         if frame_data.should_subtle_highlight(memory_address, options.data_preview.selected_data_format)
