@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate maplit;
 
-use std::sync::{mpsc, Mutex};
+use std::sync::mpsc;
 
 use audio::AudioDevice;
 use cpal::traits::StreamTrait;

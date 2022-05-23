@@ -165,6 +165,8 @@ impl Nes {
     let cpu = &mut self.cpu.clone();
     cpu.sig_reset(self);
     self.cpu = *cpu;
+
+    self.apu.reset();
   }
 
   pub fn trace(&self) -> String {
