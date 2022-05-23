@@ -224,7 +224,7 @@ impl PulseOscillator {
       frequency: 0.0,
       duty_cycle: 0.0,
       amplitude: 1.0,
-      harmonics: 50,
+      harmonics: 30,
     }
   }
 
@@ -236,10 +236,24 @@ impl PulseOscillator {
     for n in 1..self.harmonics {
       let n = n as f32;
       let c = n * self.frequency * 2.0 * PI * t;
-      a += -(c).sin() / n;
-      b += -(c - p * n).sin() / n;
+      a += -(c).qsin() / n;
+      b += -(c - p * n).qsin() / n;
     }
 
     return (2.0 * self.amplitude / PI) * (a - b);
+  }
+}
+
+trait QuickSin {
+  fn qsin(self) -> Self;
+}
+
+impl QuickSin for f32 {
+  /// Cheap implementation of sin; approximation appropriate for audio
+  /// synthesis.
+  fn qsin(self) -> f32 {
+    let mut j = self * 0.15915;
+    j = j - (j.floor());
+    20.785 * j * (j - 0.5) * (j - 1.0)
   }
 }
