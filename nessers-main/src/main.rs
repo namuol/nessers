@@ -151,6 +151,17 @@ fn main() -> Result<(), Error> {
           audio_device.stream.pause().unwrap();
           nes.step();
         }
+
+        if input.key_pressed(VirtualKeyCode::S) {
+          println!("---");
+          println!("freq: {}", nes.apu.pulse_1_osc.frequency);
+          println!("amp: {}", nes.apu.pulse_1_osc.amplitude);
+          println!("duty: {}", nes.apu.pulse_1_osc.duty_cycle);
+          println!("harm: {}", nes.apu.pulse_1_osc.harmonics);
+          println!("enable: {}", nes.apu.pulse_1_enable);
+          println!("samp: {}", nes.apu.pulse_1_sample);
+          println!("clock: {}", nes.apu.global_clock);
+        }
       }
 
       // Update the scale factor
@@ -200,7 +211,7 @@ fn main() -> Result<(), Error> {
               audio_buffer.push(nes.apu.sample());
             }
 
-            if nes.ppu.frame_complete && audio_buffer.len() > (min_audio_buffer_size * 2) {
+            if nes.ppu.frame_complete && audio_buffer.len() > (min_audio_buffer_size * 30) {
               // Draw the world
               nes_debugger.draw(pixels.get_frame(), &nes);
               break;
