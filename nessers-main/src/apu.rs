@@ -21,66 +21,19 @@ const TIME_PER_SAMPLE: f32 = 1.0 / SYSTEM_SAMPLE_RATE;
 pub struct Apu {
   pub sample_ready: bool,
 
-  // Okay, um, really need to collect all of this into a reusable unit...
-  pub pulse_1_enable: bool,
-  pub pulse_1_sample: f32,
-  pub pulse_1_sequencer: Sequencer,
-  pub pulse_1_osc: PulseOscillator,
-  pub pulse_1_length_counter: u8,
-  pub pulse_1_length_counter_halt: bool,
-  pub pulse_1_envelope: Envelope,
-
-  pub pulse_2_enable: bool,
-  pub pulse_2_sample: f32,
-  pub pulse_2_sequencer: Sequencer,
-  pub pulse_2_osc: PulseOscillator,
-  pub pulse_2_length_counter: u8,
-  pub pulse_2_length_counter_halt: bool,
-  pub pulse_2_envelope: Envelope,
+  pub pulse: [Pulse; 2],
 
   time_until_next_sample: f32,
   sample_clock: f32,
   clock_counter: u32,
   frame_clock_counter: u32,
   pub global_clock: f64,
-  // pulse_2_sample: f32,
-  // triangle_sample: f32,
-  // noise_sample: f32,
-  // dmc_sample: f32,
 }
 
 impl Apu {
   pub fn new() -> Self {
     Apu {
-      pulse_1_enable: false,
-      pulse_1_sample: 0.0,
-      pulse_1_sequencer: Sequencer {
-        // Not sure why this is 32 bits; seems we only care about the lower 8
-        // bits:
-        sequence: 0b0000_0000_0000_0000_0000_0000__0000_0000,
-        timer: 0x0000,
-        reload: 0x0000,
-        output: 0x00,
-      },
-      pulse_1_osc: PulseOscillator::new(),
-      pulse_1_length_counter: 0x00,
-      pulse_1_length_counter_halt: false,
-      pulse_1_envelope: Envelope::new(),
-
-      pulse_2_enable: false,
-      pulse_2_sample: 0.0,
-      pulse_2_sequencer: Sequencer {
-        // Not sure why this is 32 bits; seems we only care about the lower 8
-        // bits:
-        sequence: 0b0000_0000_0000_0000_0000_0000__0000_0000,
-        timer: 0x0000,
-        reload: 0x0000,
-        output: 0x00,
-      },
-      pulse_2_osc: PulseOscillator::new(),
-      pulse_2_length_counter: 0x00,
-      pulse_2_length_counter_halt: false,
-      pulse_2_envelope: Envelope::new(),
+      pulse: [Pulse::new(), Pulse::new()],
 
       sample_ready: false,
 
@@ -101,8 +54,12 @@ impl Apu {
 
     self.sample_ready = false;
 
-    // Simple for now:
-    self.pulse_1_sample + self.pulse_2_sample
+    let mut sample: f32 = 0.0;
+    for i in 0..self.pulse.len() {
+      sample += self.pulse[i].sample;
+    }
+
+    sample
   }
 
   pub fn cpu_write(&mut self, addr: u16, data: u8) -> Option<()> {
@@ -111,121 +68,98 @@ impl Apu {
       // with controller's 4017... that's okay because this should just be
       // temporary.
       match addr {
-        0x4000 => {
+        0x4000 | 0x4004 => {
+          let i = if addr == 0x4000 { 0 } else { 1 };
+
           // Duty Cycle
           match (data & 0b1100_0000) >> 6 {
             0x00 => {
-              self.pulse_1_sequencer.sequence = 0b0000_0001;
-              self.pulse_1_osc.duty_cycle = 1.0 / 8.0;
+              self.pulse[i].sequencer.sequence = 0b0000_0001;
+              self.pulse[i].osc.duty_cycle = 1.0 / 8.0;
             }
             0x01 => {
-              self.pulse_1_sequencer.sequence = 0b0000_0011;
-              self.pulse_1_osc.duty_cycle = 2.0 / 8.0;
+              self.pulse[i].sequencer.sequence = 0b0000_0011;
+              self.pulse[i].osc.duty_cycle = 2.0 / 8.0;
             }
             0x02 => {
-              self.pulse_1_sequencer.sequence = 0b0000_1111;
-              self.pulse_1_osc.duty_cycle = 4.0 / 8.0;
+              self.pulse[i].sequencer.sequence = 0b0000_1111;
+              self.pulse[i].osc.duty_cycle = 4.0 / 8.0;
             }
             0x03 => {
-              self.pulse_1_sequencer.sequence = 0b1111_1100;
-              self.pulse_1_osc.duty_cycle = 6.0 / 8.0;
+              self.pulse[i].sequencer.sequence = 0b1111_1100;
+              self.pulse[i].osc.duty_cycle = 6.0 / 8.0;
             }
             _ => {}
           };
 
           // Constant Volume flag
-          self.pulse_1_envelope.constant_volume_flag = (data & 0b0001_0000) != 0;
+          self.pulse[i].envelope.constant_volume_flag = (data & 0b0001_0000) != 0;
           // Constant volume level or Envelope length
-          self.pulse_1_envelope.divider.reload = (data & 0b0000_1111) as u16; // Why is this u16 again?
+          self.pulse[i].envelope.divider.reload = (data & 0b0000_1111) as u16; // Why is this u16 again?
 
           // Length Counter Halt
-          self.pulse_1_length_counter_halt = (data & 0b0010_0000) != 0;
+          self.pulse[i].length_counter_halt = (data & 0b0010_0000) != 0;
         }
 
-        0x4004 => {
-          // Duty Cycle
-          match (data & 0b1100_0000) >> 6 {
-            0x00 => {
-              self.pulse_2_sequencer.sequence = 0b0000_0001;
-              self.pulse_2_osc.duty_cycle = 1.0 / 8.0;
-            }
-            0x01 => {
-              self.pulse_2_sequencer.sequence = 0b0000_0011;
-              self.pulse_2_osc.duty_cycle = 2.0 / 8.0;
-            }
-            0x02 => {
-              self.pulse_2_sequencer.sequence = 0b0000_1111;
-              self.pulse_2_osc.duty_cycle = 4.0 / 8.0;
-            }
-            0x03 => {
-              self.pulse_2_sequencer.sequence = 0b1111_1100;
-              self.pulse_2_osc.duty_cycle = 6.0 / 8.0;
-            }
-            _ => {}
-          };
+        0x4001 | 0x4005 => {
+          let i = if addr == 0x4001 { 0 } else { 1 };
 
-          // Constant Volume flag
-          self.pulse_2_envelope.constant_volume_flag = (data & 0b0001_0000) != 0;
-          // Constant volume level or Envelope length
-          self.pulse_2_envelope.divider.reload = (data & 0b0000_1111) as u16; // Why is this u16 again?
+          // Sweep
+          self.pulse[i].sweep.enabled = (0b1000_0000 & data) != 0;
+          self.pulse[i].sweep.divider.reload = ((0b0111_0000 & data) >> 4) as u16;
+          self.pulse[i].sweep.negate = (0b0000_1000 & data) != 0;
+          self.pulse[i].sweep.shift_count = 0b0000_0111 & data;
+          self.pulse[i].sweep.divider.force_reload = true;
 
-          // Length Counter Halt
-          self.pulse_2_length_counter_halt = (data & 0b0010_0000) != 0;
+          // if self.pulse[i].sweep.enabled {
+          //   println!(
+          //     "p{} e:{} p:{} n:{} s:{}",
+          //     i,
+          //     self.pulse[i].sweep.enabled,
+          //     self.pulse[i].sweep.divider.reload,
+          //     self.pulse[i].sweep.negate,
+          //     self.pulse[i].sweep.shift_count
+          //   );
+          // }
         }
 
-        0x4002 => {
-          self.pulse_1_sequencer.reload = (self.pulse_1_sequencer.reload & 0xFF00) | (data as u16);
-        }
-        0x4006 => {
-          self.pulse_2_sequencer.reload = (self.pulse_2_sequencer.reload & 0xFF00) | (data as u16);
+        0x4002 | 0x4006 => {
+          let i = if addr == 0x4002 { 0 } else { 1 };
+
+          self.pulse[i].sequencer.reload =
+            (self.pulse[i].sequencer.reload & 0xFF00) | (data as u16);
         }
 
-        0x4003 => {
-          self.pulse_1_sequencer.reload =
-            (((data as u16) & 0x07) << 8) | (self.pulse_1_sequencer.reload & 0x00FF);
+        0x4003 | 0x4007 => {
+          let i = if addr == 0x4003 { 0 } else { 1 };
 
-          self.pulse_1_sequencer.timer = self.pulse_1_sequencer.reload;
+          self.pulse[i].sequencer.reload =
+            (((data as u16) & 0x07) << 8) | (self.pulse[i].sequencer.reload & 0x00FF);
+
+          self.pulse[i].sequencer.timer = self.pulse[i].sequencer.reload;
 
           // Length Counter/Envelope start flag
           //
           // Basically, start playing a note.
-          if self.pulse_1_enable {
+          if self.pulse[i].enable {
             // Start Flag; should this also be triggered only when the pulse is
             // enabled? Unclear from here:
             // https://www.nesdev.org/wiki/APU_Envelope
-            self.pulse_1_envelope.start_flag = true;
+            self.pulse[i].envelope.start_flag = true;
 
-            self.pulse_1_length_counter = get_length_counter((data & 0b1111_1000) >> 3);
-          }
-        }
-        0x4007 => {
-          self.pulse_2_sequencer.reload =
-            (((data as u16) & 0x07) << 8) | (self.pulse_2_sequencer.reload & 0x00FF);
-
-          self.pulse_2_sequencer.timer = self.pulse_2_sequencer.reload;
-
-          // Length Counter/Envelope start flag
-          //
-          // Basically, start playing a note.
-          if self.pulse_2_enable {
-            // Start Flag; should this also be triggered only when the pulse is
-            // enabled? Unclear from here:
-            // https://www.nesdev.org/wiki/APU_Envelope
-            self.pulse_2_envelope.start_flag = true;
-
-            self.pulse_2_length_counter = get_length_counter((data & 0b1111_1000) >> 3);
+            self.pulse[i].length_counter = get_length_counter((data & 0b1111_1000) >> 3);
           }
         }
 
         0x4015 => {
-          self.pulse_1_enable = (data & 0b0000_0001) != 0;
-          if !self.pulse_1_enable {
-            self.pulse_1_length_counter = 0;
+          self.pulse[0].enable = (data & 0b0000_0001) != 0;
+          if !self.pulse[0].enable {
+            self.pulse[0].length_counter = 0;
           }
 
-          self.pulse_2_enable = (data & 0b0000_0010) != 0;
-          if !self.pulse_2_enable {
-            self.pulse_2_length_counter = 0;
+          self.pulse[1].enable = (data & 0b0000_0010) != 0;
+          if !self.pulse[1].enable {
+            self.pulse[1].length_counter = 0;
           }
         }
 
@@ -244,8 +178,6 @@ impl Apu {
       if self.time_until_next_sample < 0.0 {
         // Simple sin wave for now:
         self.sample_clock = (self.sample_clock + 1.0) % SYSTEM_SAMPLE_RATE;
-        // self.pulse_1_sample =
-        //   (self.sample_clock * 440.0 * 2.0 * std::f32::consts::PI / SYSTEM_SAMPLE_RATE).sin() * 0.1;
         self.sample_ready = true;
         self.time_until_next_sample += TIME_PER_SAMPLE;
       }
@@ -265,7 +197,8 @@ impl Apu {
     // PPU, so anything that works on the state of the APU happens in a clock
     // that is in total 1/6th the clock() rate which is 1x PPU rate:
     if self.clock_counter % 6 == 0 {
-      self.frame_clock_counter = self.frame_clock_counter.wrapping_add(1);
+      // Don't need wrapping_add here since we're always resetting to 0:
+      self.frame_clock_counter += 1;
 
       // https://www.nesdev.org/wiki/APU_Frame_Counter
       //
@@ -301,65 +234,67 @@ impl Apu {
 
       if quarter_frame {
         // Update envelopes
-        self.pulse_1_envelope.clock();
-        self.pulse_2_envelope.clock();
+        for i in 0..self.pulse.len() {
+          self.pulse[i].envelope.clock();
+        }
       }
 
       if half_frame {
-        // Update length counters
+        for i in 0..self.pulse.len() {
+          // Update Sweeps
+          self.pulse[i].sequencer.reload = self.pulse[i]
+            .sweep
+            .clock(self.pulse[i].sequencer.reload, i != 0);
 
-        // PC1
-        if !self.pulse_1_length_counter_halt && self.pulse_1_length_counter > 0 {
-          self.pulse_1_length_counter -= 1;
-        }
-        if self.pulse_1_length_counter == 0 {
-          self.pulse_1_osc.amplitude = 0.0;
-        } else {
-          self.pulse_1_osc.amplitude = self.pulse_1_envelope.volume_level();
-        }
+          // Update length counters
+          if !self.pulse[i].length_counter_halt && self.pulse[i].length_counter > 0 {
+            self.pulse[i].length_counter -= 1;
+          }
 
-        // PC2
-        if !self.pulse_2_length_counter_halt && self.pulse_2_length_counter > 0 {
-          self.pulse_2_length_counter -= 1;
-        }
-        if self.pulse_2_length_counter == 0 {
-          self.pulse_2_osc.amplitude = 0.0;
-        } else {
-          // TODO: This should be controlled by envelope/constant volume:
-          self.pulse_2_osc.amplitude = self.pulse_2_envelope.volume_level();
+          // if self.pulse[i].sweep.muting && self.pulse[i].sweep.enabled {
+          //   println!("p{} muting!", i);
+          // }
+
+          // Set amplitude
+          if self.pulse[i].length_counter == 0 || self.pulse[i].sweep.muting {
+            self.pulse[i].osc.amplitude = 0.0;
+          } else {
+            self.pulse[i].osc.amplitude = self.pulse[i].envelope.volume_level() * 0.25;
+          }
         }
       }
 
       // Nasty raw 1-bit sound:
       //
-      // self.pulse_1_sequencer.clock(
-      //   self.pulse_1_enable,
-      //   // Shift right by 1 bit, wrapping around.
-      //   //
-      //   // ```
-      //   // 0b0000_0010_... -> 0b0000_0001_...
-      //   // 0b0000_..._0001 -> 0b1000_..._0000
-      //   // ```
-      //   |s| ((s & 0x0000_0001) << 7) | ((s & 0x0000_00FE) >> 1),
-      // );
-      // self.pulse_1_sample = if self.pulse_1_sequencer.output == 0 {
-      //   0.0
-      // } else {
-      //   1.0
-      // };
+      // for i in 0..self.pulse.len() {
+      //   self.pulse[i].sequencer.clock(
+      //     self.pulse[i].enable,
+      //     // Shift right by 1 bit, wrapping around.
+      //     //
+      //     // ```
+      //     // 0b0000_0010_... -> 0b0000_0001_...
+      //     // 0b0000_..._0001 -> 0b1000_..._0000
+      //     // ```
+      //     |s| ((s & 0x0000_0001) << 7) | ((s & 0x0000_00FE) >> 1),
+      //   );
+      //   self.pulse[i].sample = if self.pulse[i].sequencer.output == 0 {
+      //     0.0
+      //   } else {
+      //     self.pulse[i].envelope.volume_level()
+      //   };
+      // }
 
       // Nicer simulated oscillator as a sum of sin-waves:
-      // Calculate frequency from `reload`:
-      if self.pulse_1_enable {
-        self.pulse_1_osc.frequency =
-          NTSC_CPU_CLOCK_FREQ / (16.0 * (self.pulse_1_sequencer.reload + 1) as f32);
-        self.pulse_1_sample = self.pulse_1_osc.sample(self.global_clock as f32);
-      }
-
-      if self.pulse_2_enable {
-        self.pulse_2_osc.frequency =
-          NTSC_CPU_CLOCK_FREQ / (16.0 * (self.pulse_2_sequencer.reload + 1) as f32);
-        self.pulse_2_sample = self.pulse_2_osc.sample(self.global_clock as f32);
+      for i in 0..self.pulse.len() {
+        if self.pulse[i].enable {
+          // Calculate frequency from `reload` which is sometimes referred to as
+          // the "period" of the pulse wave. Should I rename this? Maybe. I got
+          // started from the OLC youtube tutorial which used these names which
+          // I found really confusing, especially since ultimately the sequencer
+          // approach to generating samples was replaced with an oscillator.
+          self.pulse[i].osc.frequency = period_to_frequency(self.pulse[i].sequencer.reload);
+          self.pulse[i].sample = self.pulse[i].osc.sample(self.global_clock as f32);
+        }
       }
     }
 
@@ -369,6 +304,10 @@ impl Apu {
   pub fn reset(&mut self) {
     self.cpu_write(0x4015, 0x00);
   }
+}
+
+fn period_to_frequency(period: u16) -> f32 {
+  NTSC_CPU_CLOCK_FREQ / (16.0 * ((period as u32) + 1) as f32)
 }
 
 fn get_length_counter(pattern: u8) -> u8 {
@@ -498,6 +437,8 @@ impl Sequencer {
 pub struct Divider {
   reload: u16,
   counter: u16,
+  // Only used by Sweep
+  force_reload: bool,
 }
 
 impl Divider {
@@ -505,12 +446,14 @@ impl Divider {
     Divider {
       reload: 0x0000,
       counter: 0x0000,
+      force_reload: false,
     }
   }
 
   pub fn clock(&mut self) -> bool {
-    if self.counter == 0 {
+    if self.counter == 0 || self.force_reload {
       self.counter = self.reload;
+      self.force_reload = false;
       true
     } else {
       self.counter -= 1;
@@ -577,6 +520,135 @@ impl Envelope {
   }
 }
 
+pub struct Sweep {
+  enabled: bool,
+  divider: Divider,
+  negate: bool,
+  // We use the reload flag in our Divider:
+  // reload: bool,
+  shift_count: u8,
+  muting: bool,
+}
+
+impl Sweep {
+  pub fn new() -> Self {
+    Sweep {
+      enabled: false,
+      divider: Divider::new(),
+      negate: false,
+      shift_count: 0,
+      muting: false,
+    }
+  }
+
+  /// Clocks the Sweep's internal divider and if conditions are right, returns a
+  /// new value to set the Pulse's sequencer's period to.
+  pub fn clock(&mut self, current_period: u16, is_pulse_2: bool) -> u16 {
+    // https://www.nesdev.org/wiki/APU_Sweep#Updating_the_period
+    //
+    // When the frame counter sends a half-frame clock (at 120 or 96 Hz), two
+    // things happen.
+    //
+    // 1. If the divider's counter is zero, the sweep is enabled, and the sweep
+    //    unit is not muting the channel: The pulse's period is adjusted.
+    // 2. If the divider's counter is zero or the reload flag is true: The
+    //    counter is set to P and the reload flag is cleared. Otherwise, the
+    //    counter is decremented.
+    //
+    // When the sweep unit is muting the channel, the channel's current period
+    // remains unchanged, but the divider continues to count down and reload the
+    // (unchanging) period as normal. Otherwise, if the enable flag is set and
+    // the shift count is non-zero, when the divider outputs a clock, the
+    // channel's period is updated.
+    //
+    // If the shift count is zero, the channel's period is never updated, but
+    // muting logic still applies.
+    // let change_amount = barrel_shift_11_bits(current_period, self.shift_count);
+    let change_amount = current_period >> self.shift_count;
+    let target_period = if self.negate {
+      (current_period & 0b00000_11111111111).wrapping_sub(change_amount)
+    } else {
+      (current_period & 0b00000_11111111111).wrapping_add(change_amount)
+    };
+
+    self.muting = current_period < 8 || target_period > 0x7FF;
+
+    if self.divider.clock() && self.enabled && !self.muting {
+      // https://www.nesdev.org/wiki/APU_Sweep#Calculating_the_target_period
+      //
+      // The sweep unit continuously calculates each channel's target period in
+      // this way:
+      //
+      // 1. A barrel shifter shifts the channel's 11-bit raw timer period
+      //      ^^^^^^^^^^^^^^ - NO. THIS IS WRONG. USE ORDINARY RIGHT SHIFT.
+      //      OTHERWISE YOU GET HUGE CHANGES WHEN NUMBERS WRAP AROUND.
+      // 
+      //    right by the shift count, producing the change amount.
+      // 2. If the negate flag is true, the change amount is made negative.
+      // 3. The target period is the sum of the current period and the change
+      //    amount.
+      //
+      // For example, if the negate flag is false and the shift amount is zero,
+      // the change amount equals the current period, making the target period
+      // equal to twice the current period.
+      //
+      // The two pulse channels have their adders' carry inputs wired
+      // differently, which produces different results when each channel's
+      // change amount is made negative:
+      //
+      // - Pulse 1 adds the ones' complement (−c − 1). Making 20 negative
+      //   produces a change amount of −21.
+      // - Pulse 2 adds the two's complement (−c). Making 20 negative produces a
+      //   change amount of −20.
+      //
+      // Whenever the current period changes for any reason, whether by $400x
+      // writes or by sweep, the target period also changes. println!( "s {}
+      // chg_amt {}{:03X} {}{}; c {:03X} {} t {:03X} {}", self.shift_count, if
+      //   self.negate { "-" } else { "" }, change_amount, if self.negate { "-"
+      //   } else { "" }, period_to_frequency(change_amount), current_period,
+      //   period_to_frequency(current_period), target_period,
+      //   period_to_frequency(target_period) );
+
+      target_period
+    } else {
+      current_period
+    }
+  }
+}
+
+pub struct Pulse {
+  pub enable: bool,
+  pub sample: f32,
+  pub sequencer: Sequencer,
+  pub osc: PulseOscillator,
+  pub length_counter: u8,
+  pub length_counter_halt: bool,
+  pub envelope: Envelope,
+  pub sweep: Sweep,
+}
+
+impl Pulse {
+  fn new() -> Self {
+    Pulse {
+      enable: false,
+      sample: 0.0,
+      sequencer: Sequencer {
+        // Not sure why this is 32 bits; seems we only care about the lower 8
+        // bits:
+        sequence: 0b0000_0000_0000_0000_0000_0000__0000_0000,
+        timer: 0x0000,
+        reload: 0x0000,
+        output: 0x00,
+      },
+      osc: PulseOscillator::new(),
+      length_counter: 0x00,
+      length_counter_halt: false,
+      envelope: Envelope::new(),
+      sweep: Sweep::new(),
+    }
+  }
+}
+
 pub struct PulseOscillator {
   pub frequency: f32,
   pub duty_cycle: f32,
@@ -621,5 +693,57 @@ impl QuickSin for f32 {
     let mut j = self * 0.15915;
     j = j - (j.floor());
     20.785 * j * (j - 0.5) * (j - 1.0)
+  }
+}
+
+/// Shift an 11-bit value right by a number of bits.
+///
+///
+/// ```
+/// 0b----_-101_0101_1011
+/// ```
+pub(crate) fn barrel_shift_11_bits(n: u16, amount_: u8) -> u16 {
+  let amount = amount_ % 11;
+  if amount == 0 {
+    return n;
+  }
+
+  ((n << (11 - amount)) | (n >> amount)) & 0b0000_0111_1111_1111
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn test_barrel_shift_11_bits() {
+    let cases: Vec<(u16, u8, u16, &str)> = vec![
+      (0b00000000001, 0, 0b00000000001, "0"),
+      (0b00000000010, 1, 0b00000000001, "1"),
+      (0b00000000001, 1, 0b10000000000, "1"),
+      (0b00000000001, 2, 0b01000000000, "2"),
+      (0b00000000001, 3, 0b00100000000, "3"),
+      (0b00000000001, 4, 0b00010000000, "4"),
+      (0b00000000001, 5, 0b00001000000, "5"),
+      (0b00000000001, 6, 0b00000100000, "6"),
+      (0b00000000001, 7, 0b00000010000, "7"),
+      (0b00000000001, 8, 0b00000001000, "8"),
+      (0b00000000001, 9, 0b00000000100, "9"),
+      (0b00000000001, 10, 0b00000000010, "10"),
+      (0b00000000001, 11, 0b00000000001, "11"),
+      (0b00000000001, 12, 0b10000000000, "12"),
+      (0b00000000001, 13, 0b01000000000, "13"),
+      // Discards unused bits
+      (0b11111_00000000001, 1, 0b00000_10000000000, "x0"),
+    ];
+
+    for (period, amount, result, name) in cases {
+      assert_eq!(
+        format!("{:016b}", barrel_shift_11_bits(period, amount)),
+        format!("{:016b}", result),
+        "{}",
+        name
+      );
+    }
   }
 }

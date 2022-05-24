@@ -154,12 +154,12 @@ fn main() -> Result<(), Error> {
 
         if input.key_pressed(VirtualKeyCode::S) {
           println!("---");
-          println!("freq: {}", nes.apu.pulse_1_osc.frequency);
-          println!("amp: {}", nes.apu.pulse_1_osc.amplitude);
-          println!("duty: {}", nes.apu.pulse_1_osc.duty_cycle);
-          println!("harm: {}", nes.apu.pulse_1_osc.harmonics);
-          println!("enable: {}", nes.apu.pulse_1_enable);
-          println!("samp: {}", nes.apu.pulse_1_sample);
+          println!("freq: {}", nes.apu.pulse[0].osc.frequency);
+          println!("amp: {}", nes.apu.pulse[0].osc.amplitude);
+          println!("duty: {}", nes.apu.pulse[0].osc.duty_cycle);
+          println!("harm: {}", nes.apu.pulse[0].osc.harmonics);
+          println!("enable: {}", nes.apu.pulse[0].enable);
+          println!("samp: {}", nes.apu.pulse[0].sample);
           println!("clock: {}", nes.apu.global_clock);
         }
       }
