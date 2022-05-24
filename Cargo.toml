@@ -1,5 +1,6 @@
 [workspace]
 members = ["nessers-main", "egui_memory_editor"]
+default-members = ["nessers-main"]
 resolver = "2"
 
 [profile.dev]

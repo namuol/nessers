@@ -568,8 +568,8 @@ mod tests {
   #[test]
   fn nestest() {
     let mut nes = match Nes::new(
-      "nessers-main/src/test_fixtures/nestest.nes",
-      "nessers-main/src/test_fixtures/ntscpalette.pal",
+      "src/test_fixtures/nestest.nes",
+      "src/test_fixtures/ntscpalette.pal",
     ) {
       Ok(n) => n,
       Err(msg) => panic!("{}", msg),
@@ -578,7 +578,7 @@ mod tests {
     nes.cpu.pc = 0xC000;
     let mut line_num = 0;
     // First few traces:
-    read_lines("nessers-main/src/test_fixtures/nestest.log")
+    read_lines("src/test_fixtures/nestest.log")
       .unwrap()
       .for_each(|line| {
         line_num += 1;
