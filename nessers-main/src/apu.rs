@@ -1,5 +1,7 @@
 use std::f32::consts::PI;
 
+use lazy_static::lazy_static;
+
 // https://www.nesdev.org/wiki/Cycle_reference_chart
 //
 // PPU clock speed = 21.477272 MHz ÷ 4
@@ -22,6 +24,7 @@ pub struct Apu {
   pub sample_ready: bool,
 
   pub pulse: [Pulse; 2],
+  pub triangle: Triangle,
 
   time_until_next_sample: f32,
   sample_clock: f32,
@@ -34,7 +37,7 @@ impl Apu {
   pub fn new() -> Self {
     Apu {
       pulse: [Pulse::new(), Pulse::new()],
-
+      triangle: Triangle::new(),
       sample_ready: false,
 
       time_until_next_sample: TIME_PER_SAMPLE,
@@ -59,6 +62,7 @@ impl Apu {
       sample += self.pulse[i].sample;
     }
 
+    sample += self.triangle.sample;
     sample
   }
 
@@ -68,6 +72,7 @@ impl Apu {
       // with controller's 4017... that's okay because this should just be
       // temporary.
       match addr {
+        // Pulse 1 & 2
         0x4000 | 0x4004 => {
           let i = if addr == 0x4000 { 0 } else { 1 };
 
@@ -163,6 +168,28 @@ impl Apu {
           }
         }
 
+        // Triangle
+        0x4008 => {
+          // Also the length counter halt apparently
+          self.triangle.control = (0b1000_0000 & data) != 0;
+          self.triangle.linear_counter_reload_value = 0b0111_1111;
+        }
+
+        0x400A => {
+          // Timer lower 8 bits
+          self.triangle.sequencer.reload =
+            (self.triangle.sequencer.reload & 0xFF00) | (data as u16);
+        }
+
+        0x400B => {
+          // Timer high 5 bits
+          self.triangle.sequencer.reload =
+            (((data as u16) & 0x07) << 8) | (self.triangle.sequencer.reload & 0x00FF);
+
+          self.triangle.length_counter = get_length_counter((data & 0b1111_1000) >> 3);
+          self.triangle.linear_counter_reload = true;
+        }
+
         _ => {}
       }
 
@@ -237,6 +264,9 @@ impl Apu {
         for i in 0..self.pulse.len() {
           self.pulse[i].envelope.clock();
         }
+
+        // Update Triangle linear counter
+        self.triangle.linear_counter_clock();
       }
 
       if half_frame {
@@ -283,6 +313,10 @@ impl Apu {
       //     self.pulse[i].envelope.volume_level()
       //   };
       // }
+
+      // Triangle 4-bit sound:
+      self.triangle.sequencer.clock(true, |s| (s + 1) % 32);
+      self.triangle.sample = self.triangle.get_sample();
 
       // Nicer simulated oscillator as a sum of sin-waves:
       for i in 0..self.pulse.len() {
@@ -401,6 +435,15 @@ pub struct Sequencer {
 }
 
 impl Sequencer {
+  pub fn new() -> Self {
+    Sequencer {
+      sequence: 0b0000_0000_0000_0000_0000_0000_0000_0000,
+      timer: 0x0000,
+      reload: 0x0000,
+      output: 0x00,
+    }
+  }
+
   pub fn clock(&mut self, enable: bool, manipulate_sequence: fn(u32) -> u32) -> u8 {
     if enable {
       self.timer = self.timer.wrapping_sub(1);
@@ -566,9 +609,9 @@ impl Sweep {
     // let change_amount = barrel_shift_11_bits(current_period, self.shift_count);
     let change_amount = current_period >> self.shift_count;
     let target_period = if self.negate {
-      (current_period & 0b00000_11111111111).wrapping_sub(change_amount)
+      current_period.wrapping_sub(change_amount + if is_pulse_2 { 0 } else { 1 })
     } else {
-      (current_period & 0b00000_11111111111).wrapping_add(change_amount)
+      current_period.wrapping_add(change_amount)
     };
 
     self.muting = current_period < 8 || target_period > 0x7FF;
@@ -582,7 +625,7 @@ impl Sweep {
       // 1. A barrel shifter shifts the channel's 11-bit raw timer period
       //      ^^^^^^^^^^^^^^ - NO. THIS IS WRONG. USE ORDINARY RIGHT SHIFT.
       //      OTHERWISE YOU GET HUGE CHANGES WHEN NUMBERS WRAP AROUND.
-      // 
+      //
       //    right by the shift count, producing the change amount.
       // 2. If the negate flag is true, the change amount is made negative.
       // 3. The target period is the sum of the current period and the change
@@ -662,7 +705,7 @@ impl PulseOscillator {
       frequency: 0.0,
       duty_cycle: 0.0,
       amplitude: 0.25,
-      harmonics: 30,
+      harmonics: 60,
     }
   }
 
@@ -695,6 +738,64 @@ impl QuickSin for f32 {
     20.785 * j * (j - 0.5) * (j - 1.0)
   }
 }
+
+pub struct Triangle {
+  sequencer: Sequencer,
+  length_counter: u8,
+  linear_counter: u8,
+  linear_counter_reload_value: u8,
+  linear_counter_reload: bool,
+  control: bool,
+  sample: f32,
+}
+
+impl Triangle {
+  pub fn new() -> Self {
+    Triangle {
+      sequencer: Sequencer::new(),
+      length_counter: 0x00,
+      linear_counter: 0x00,
+      linear_counter_reload_value: 0x00,
+      linear_counter_reload: false,
+      control: false,
+      sample: 0.0,
+    }
+  }
+
+  pub fn linear_counter_clock(&mut self) {
+    // https://www.nesdev.org/wiki/APU_Triangle
+    //
+    // When the frame counter generates a linear counter clock, the following
+    // actions occur in order:
+    //
+    // 1. If the linear counter reload flag is set, the linear counter is
+    //    reloaded with the counter reload value, otherwise if the linear
+    //    counter is non-zero, it is decremented.
+    // 2. If the control flag is clear, the linear counter reload flag is
+    //    cleared.
+
+    if self.linear_counter_reload {
+      self.linear_counter = self.linear_counter_reload_value;
+    } else if self.linear_counter != 0 {
+      self.linear_counter -= 1;
+    }
+
+    if !self.control {
+      self.linear_counter_reload = false;
+    }
+  }
+
+  pub fn get_sample(&mut self) -> f32 {
+    // We (mis)use the sequencer's sequence value to loop through 32 steps.
+    TRIANGLE_SEQUENCE[(self.sequencer.sequence % 32) as usize]
+  }
+}
+
+#[rustfmt::skip]
+const TRIANGLE_SEQUENCE: [f32; 32] = [
+  15.0 / 15.0, 14.0 / 15.0, 13.0 / 15.0, 12.0 / 15.0, 11.0 / 15.0, 10.0 / 15.0, 9.0 / 15.0, 8.0 / 15.0, 7.0 / 15.0, 6.0 / 15.0, 5.0 / 15.0, 4.0 / 15.0, 3.0 / 15.0, 2.0 / 15.0, 1.0 / 15.0, 0.0 / 15.0,
+  0.0 / 15.0, 1.0 / 15.0, 2.0 / 15.0, 3.0 / 15.0, 4.0 / 15.0, 5.0 / 15.0, 6.0 / 15.0, 7.0 / 15.0, 8.0 / 15.0, 9.0 / 15.0, 10.0 / 15.0, 11.0 / 15.0, 12.0 / 15.0, 13.0 / 15.0, 14.0 / 15.0, 15.0 / 15.0,
+];
 
 /// Shift an 11-bit value right by a number of bits.
 ///
