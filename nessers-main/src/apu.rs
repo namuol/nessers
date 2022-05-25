@@ -172,7 +172,7 @@ impl Apu {
         0x4008 => {
           // Also the length counter halt apparently
           self.triangle.control = (0b1000_0000 & data) != 0;
-          self.triangle.linear_counter_reload_value = 0b0111_1111;
+          self.triangle.linear_counter_reload_value = 0b0111_1111 & data;
         }
 
         0x400A => {
@@ -280,6 +280,10 @@ impl Apu {
           if !self.pulse[i].length_counter_halt && self.pulse[i].length_counter > 0 {
             self.pulse[i].length_counter -= 1;
           }
+          
+          if !self.triangle.control && self.triangle.length_counter > 0 {
+            self.triangle.length_counter -= 1;
+          }
 
           // if self.pulse[i].sweep.muting && self.pulse[i].sweep.enabled {
           //   println!("p{} muting!", i);
@@ -314,10 +318,6 @@ impl Apu {
       //   };
       // }
 
-      // Triangle 4-bit sound:
-      self.triangle.sequencer.clock(true, |s| (s + 1) % 32);
-      self.triangle.sample = self.triangle.get_sample();
-
       // Nicer simulated oscillator as a sum of sin-waves:
       for i in 0..self.pulse.len() {
         if self.pulse[i].enable {
@@ -329,6 +329,15 @@ impl Apu {
           self.pulse[i].osc.frequency = period_to_frequency(self.pulse[i].sequencer.reload);
           self.pulse[i].sample = self.pulse[i].osc.sample(self.global_clock as f32);
         }
+      }
+    }
+
+    // The triangle's sequencer runs at twice the rate of the pulse sequencers:
+    if self.clock_counter % 3 == 0 {
+      // Triangle 4-bit sound:
+      if self.triangle.length_counter != 0 && self.triangle.linear_counter != 0 {
+        self.triangle.sequencer.clock(true, |s| (s + 1) % 32);
+        self.triangle.sample = self.triangle.get_sample();
       }
     }
 
