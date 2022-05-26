@@ -25,6 +25,7 @@ pub struct Apu {
 
   pub pulse: [Pulse; 2],
   pub triangle: Triangle,
+  pub noise: Noise,
 
   time_until_next_sample: f32,
   sample_clock: f32,
@@ -38,6 +39,7 @@ impl Apu {
     Apu {
       pulse: [Pulse::new(), Pulse::new()],
       triangle: Triangle::new(),
+      noise: Noise::new(),
       sample_ready: false,
 
       time_until_next_sample: TIME_PER_SAMPLE,
@@ -63,6 +65,7 @@ impl Apu {
     }
 
     sample += self.triangle.sample;
+    sample += self.noise.sample;
     sample
   }
 
@@ -190,6 +193,25 @@ impl Apu {
           self.triangle.linear_counter_reload = true;
         }
 
+        // Noise
+        0x400C => {
+          // Length Counter Halt
+          self.noise.length_counter_halt = (0b0010_0000 & data) != 0;
+          // Constant Volume flag
+          self.noise.envelope.constant_volume_flag = (0b0001_0000 & data) != 0;
+          // Constant volume level or Envelope length
+          self.noise.envelope.divider.reload = (data & 0b0000_1111) as u16; // Why is this u16 again?
+        }
+
+        0x400E => {
+          self.noise.mode_flag = (0b1000_0000 & data) != 0;
+          self.noise.sequencer.reload = get_noise_sequencer_period(data & 0b0000_1111) as u16;
+        }
+
+        0x400F => {
+          self.noise.length_counter = get_length_counter((data & 0b1111_1000) >> 3);
+        }
+
         _ => {}
       }
 
@@ -264,6 +286,7 @@ impl Apu {
         for i in 0..self.pulse.len() {
           self.pulse[i].envelope.clock();
         }
+        self.noise.envelope.clock();
 
         // Update Triangle linear counter
         self.triangle.linear_counter_clock();
@@ -280,14 +303,14 @@ impl Apu {
           if !self.pulse[i].length_counter_halt && self.pulse[i].length_counter > 0 {
             self.pulse[i].length_counter -= 1;
           }
-          
+
           if !self.triangle.control && self.triangle.length_counter > 0 {
             self.triangle.length_counter -= 1;
           }
 
-          // if self.pulse[i].sweep.muting && self.pulse[i].sweep.enabled {
-          //   println!("p{} muting!", i);
-          // }
+          if !self.noise.length_counter_halt && self.noise.length_counter > 0 {
+            self.noise.length_counter -= 1
+          }
 
           // Set amplitude
           if self.pulse[i].length_counter == 0 || self.pulse[i].sweep.muting {
@@ -330,13 +353,18 @@ impl Apu {
           self.pulse[i].sample = self.pulse[i].osc.sample(self.global_clock as f32);
         }
       }
+
+      self.noise.sequencer.clock(true, &mut |_| {
+        Noise::clock(&mut self.noise.lfsr, self.noise.mode_flag) as u32
+      });
+      self.noise.sample = self.noise.get_sample();
     }
 
     // The triangle's sequencer runs at twice the rate of the pulse sequencers:
     if self.clock_counter % 3 == 0 {
       // Triangle 4-bit sound:
       if self.triangle.length_counter != 0 && self.triangle.linear_counter != 0 {
-        self.triangle.sequencer.clock(true, |s| (s + 1) % 32);
+        self.triangle.sequencer.clock(true, &mut |s| (s + 1) % 32);
         self.triangle.sample = self.triangle.get_sample();
       }
     }
@@ -436,6 +464,37 @@ fn get_length_counter(pattern: u8) -> u8 {
   }
 }
 
+/// Takes a 4-bit number (top 4 bits ignored) and produces a length for the
+/// period of the noise channel's.
+///
+/// ```
+/// Rate  $0 $1  $2  $3  $4  $5   $6   $7   $8   $9   $A   $B   $C    $D    $E    $F
+///       --------------------------------------------------------------------------
+/// NTSC   4, 8, 16, 32, 64, 96, 128, 160, 202, 254, 380, 508, 762, 1016, 2034, 4068
+/// PAL    4, 8, 14, 30, 60, 88, 118, 148, 188, 236, 354, 472, 708,  944, 1890, 3778
+/// ```
+fn get_noise_sequencer_period(data: u8) -> u16 {
+  match data & 0b0000_1111 {
+    0x0 => 4,
+    0x1 => 8,
+    0x2 => 16,
+    0x3 => 32,
+    0x4 => 64,
+    0x5 => 96,
+    0x6 => 128,
+    0x7 => 160,
+    0x8 => 202,
+    0x9 => 254,
+    0xA => 380,
+    0xB => 508,
+    0xC => 762,
+    0xD => 1016,
+    0xE => 2034,
+    0xF => 4068,
+    _ => 0,
+  }
+}
+
 pub struct Sequencer {
   sequence: u32,
   timer: u16,
@@ -453,7 +512,7 @@ impl Sequencer {
     }
   }
 
-  pub fn clock(&mut self, enable: bool, manipulate_sequence: fn(u32) -> u32) -> u8 {
+  pub fn clock(&mut self, enable: bool, manipulate_sequence: &mut dyn FnMut(u32) -> u32) -> u8 {
     if enable {
       self.timer = self.timer.wrapping_sub(1);
       if self.timer == 0xFFFF {
@@ -758,6 +817,12 @@ pub struct Triangle {
   sample: f32,
 }
 
+#[rustfmt::skip]
+const TRIANGLE_SEQUENCE: [f32; 32] = [
+  15.0 / 15.0, 14.0 / 15.0, 13.0 / 15.0, 12.0 / 15.0, 11.0 / 15.0, 10.0 / 15.0, 9.0 / 15.0, 8.0 / 15.0, 7.0 / 15.0, 6.0 / 15.0, 5.0 / 15.0, 4.0 / 15.0, 3.0 / 15.0, 2.0 / 15.0, 1.0 / 15.0, 0.0 / 15.0,
+  0.0 / 15.0, 1.0 / 15.0, 2.0 / 15.0, 3.0 / 15.0, 4.0 / 15.0, 5.0 / 15.0, 6.0 / 15.0, 7.0 / 15.0, 8.0 / 15.0, 9.0 / 15.0, 10.0 / 15.0, 11.0 / 15.0, 12.0 / 15.0, 13.0 / 15.0, 14.0 / 15.0, 15.0 / 15.0,
+];
+
 impl Triangle {
   pub fn new() -> Self {
     Triangle {
@@ -800,60 +865,73 @@ impl Triangle {
   }
 }
 
-#[rustfmt::skip]
-const TRIANGLE_SEQUENCE: [f32; 32] = [
-  15.0 / 15.0, 14.0 / 15.0, 13.0 / 15.0, 12.0 / 15.0, 11.0 / 15.0, 10.0 / 15.0, 9.0 / 15.0, 8.0 / 15.0, 7.0 / 15.0, 6.0 / 15.0, 5.0 / 15.0, 4.0 / 15.0, 3.0 / 15.0, 2.0 / 15.0, 1.0 / 15.0, 0.0 / 15.0,
-  0.0 / 15.0, 1.0 / 15.0, 2.0 / 15.0, 3.0 / 15.0, 4.0 / 15.0, 5.0 / 15.0, 6.0 / 15.0, 7.0 / 15.0, 8.0 / 15.0, 9.0 / 15.0, 10.0 / 15.0, 11.0 / 15.0, 12.0 / 15.0, 13.0 / 15.0, 14.0 / 15.0, 15.0 / 15.0,
-];
+/// https://www.nesdev.org/wiki/APU_Noise
+pub struct Noise {
+  sequencer: Sequencer,
+  envelope: Envelope,
 
-/// Shift an 11-bit value right by a number of bits.
-///
-///
-/// ```
-/// 0b----_-101_0101_1011
-/// ```
-pub(crate) fn barrel_shift_11_bits(n: u16, amount_: u8) -> u16 {
-  let amount = amount_ % 11;
-  if amount == 0 {
-    return n;
-  }
+  mode_flag: bool,
 
-  ((n << (11 - amount)) | (n >> amount)) & 0b0000_0111_1111_1111
+  // TODO: Move length counter logic into a struct with methods
+  length_counter_halt: bool,
+  length_counter: u8,
+
+  lfsr: LinearFeedbackShiftRegister,
+
+  sample: f32,
 }
 
-#[cfg(test)]
-mod tests {
-  use super::*;
+impl Noise {
+  fn new() -> Self {
+    Noise {
+      sequencer: Sequencer::new(),
+      envelope: Envelope::new(),
 
-  #[test]
-  fn test_barrel_shift_11_bits() {
-    let cases: Vec<(u16, u8, u16, &str)> = vec![
-      (0b00000000001, 0, 0b00000000001, "0"),
-      (0b00000000010, 1, 0b00000000001, "1"),
-      (0b00000000001, 1, 0b10000000000, "1"),
-      (0b00000000001, 2, 0b01000000000, "2"),
-      (0b00000000001, 3, 0b00100000000, "3"),
-      (0b00000000001, 4, 0b00010000000, "4"),
-      (0b00000000001, 5, 0b00001000000, "5"),
-      (0b00000000001, 6, 0b00000100000, "6"),
-      (0b00000000001, 7, 0b00000010000, "7"),
-      (0b00000000001, 8, 0b00000001000, "8"),
-      (0b00000000001, 9, 0b00000000100, "9"),
-      (0b00000000001, 10, 0b00000000010, "10"),
-      (0b00000000001, 11, 0b00000000001, "11"),
-      (0b00000000001, 12, 0b10000000000, "12"),
-      (0b00000000001, 13, 0b01000000000, "13"),
-      // Discards unused bits
-      (0b11111_00000000001, 1, 0b00000_10000000000, "x0"),
-    ];
+      mode_flag: false,
 
-    for (period, amount, result, name) in cases {
-      assert_eq!(
-        format!("{:016b}", barrel_shift_11_bits(period, amount)),
-        format!("{:016b}", result),
-        "{}",
-        name
-      );
+      length_counter_halt: false,
+      length_counter: 0x00,
+
+      // On power-up, the shift register is loaded with the value 1.
+      lfsr: LinearFeedbackShiftRegister(0b0000_0000_0000_0001),
+
+      sample: 0.0,
+    }
+  }
+  fn clock(lfsr: &mut LinearFeedbackShiftRegister, mode_flag: bool) -> u16 {
+    // The shift register is 15 bits wide, with bits numbered:
+    // ```
+    // 14 - 13 - 12 - 11 - 10 - 9 - 8 - 7 - 6 - 5 - 4 - 3 - 2 - 1 - 0
+    // ```
+    //
+    // When the timer clocks the shift register, the following actions occur in
+    // order:
+    //
+    // 1. Feedback is calculated as the exclusive-OR of bit 0 and one other bit:
+    //    bit 6 if Mode flag is set, otherwise bit 1.
+    // 2. The shift register is shifted right by one bit.
+    // 3. Bit 14, the leftmost bit, is set to the feedback calculated earlier.
+    let feedback = (0b0000_0000_0000_0001 & lfsr.0)
+      ^ (if mode_flag {
+        (0b0000_0000_0010_0000 & lfsr.0) >> 6
+      } else {
+        (0b0000_0000_0000_0010 & lfsr.0) >> 1
+      });
+
+    lfsr.0 >>= 1;
+    lfsr.0 |= feedback << 14;
+    lfsr.0 & 0b0000_0000_0000_0001
+  }
+  fn get_sample(&mut self) -> f32 {
+    // The mixer receives the current envelope volume except when
+    // - Bit 0 of the shift register is set, or
+    // - The length counter is zero
+    if (self.lfsr.0 & 0b0000_0000_0000_0001) != 0 || self.length_counter == 0 {
+      0.0
+    } else {
+      self.envelope.volume_level()
     }
   }
 }
+
+struct LinearFeedbackShiftRegister(u16);
