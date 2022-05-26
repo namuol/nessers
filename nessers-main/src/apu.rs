@@ -61,11 +61,11 @@ impl Apu {
 
     let mut sample: f32 = 0.0;
     for i in 0..self.pulse.len() {
-      sample += self.pulse[i].sample;
+      sample += self.pulse[i].sample * 0.25;
     }
 
-    sample += self.triangle.sample;
-    sample += self.noise.sample;
+    sample += self.triangle.sample * 0.25;
+    sample += self.noise.sample * 0.25;
     sample
   }
 
@@ -169,6 +169,16 @@ impl Apu {
           if !self.pulse[1].enable {
             self.pulse[1].length_counter = 0;
           }
+
+          self.triangle.enable = (data & 0b0000_0100) != 0;
+          if !self.triangle.enable {
+            self.triangle.length_counter = 0;
+          }
+
+          self.noise.enable = (data & 0b0000_0100) != 0;
+          if !self.noise.enable {
+            self.noise.length_counter = 0;
+          }
         }
 
         // Triangle
@@ -206,10 +216,12 @@ impl Apu {
         0x400E => {
           self.noise.mode_flag = (0b1000_0000 & data) != 0;
           self.noise.sequencer.reload = get_noise_sequencer_period(data & 0b0000_1111) as u16;
+          self.noise.sequencer.timer = self.noise.sequencer.reload;
         }
 
         0x400F => {
           self.noise.length_counter = get_length_counter((data & 0b1111_1000) >> 3);
+          self.noise.envelope.start_flag = true;
         }
 
         _ => {}
@@ -304,20 +316,21 @@ impl Apu {
             self.pulse[i].length_counter -= 1;
           }
 
-          if !self.triangle.control && self.triangle.length_counter > 0 {
-            self.triangle.length_counter -= 1;
-          }
-
-          if !self.noise.length_counter_halt && self.noise.length_counter > 0 {
-            self.noise.length_counter -= 1
-          }
-
           // Set amplitude
           if self.pulse[i].length_counter == 0 || self.pulse[i].sweep.muting {
             self.pulse[i].osc.amplitude = 0.0;
           } else {
             self.pulse[i].osc.amplitude = self.pulse[i].envelope.volume_level() * 0.25;
           }
+        }
+
+        // Update length counters
+        if !self.triangle.control && self.triangle.length_counter > 0 {
+          self.triangle.length_counter -= 1;
+        }
+
+        if !self.noise.length_counter_halt && self.noise.length_counter > 0 {
+          self.noise.length_counter -= 1
         }
       }
 
@@ -354,7 +367,7 @@ impl Apu {
         }
       }
 
-      self.noise.sequencer.clock(true, &mut |_| {
+      self.noise.sequencer.clock(self.noise.enable, &mut |_| {
         Noise::clock(&mut self.noise.lfsr, self.noise.mode_flag) as u32
       });
       self.noise.sample = self.noise.get_sample();
@@ -364,7 +377,10 @@ impl Apu {
     if self.clock_counter % 3 == 0 {
       // Triangle 4-bit sound:
       if self.triangle.length_counter != 0 && self.triangle.linear_counter != 0 {
-        self.triangle.sequencer.clock(true, &mut |s| (s + 1) % 32);
+        self
+          .triangle
+          .sequencer
+          .clock(self.triangle.enable, &mut |s| (s + 1) % 32);
         self.triangle.sample = self.triangle.get_sample();
       }
     }
@@ -624,9 +640,9 @@ impl Envelope {
   // Why the heck does this need to be `&mut self`?
   pub fn volume_level(&mut self) -> f32 {
     if self.constant_volume_flag {
-      (self.divider.reload as f32) / 16.0
+      (self.divider.reload as f32) / 15.0
     } else {
-      (self.decay_level as f32) / 16.0
+      (self.decay_level as f32) / 15.0
     }
   }
 }
@@ -772,7 +788,7 @@ impl PulseOscillator {
     PulseOscillator {
       frequency: 0.0,
       duty_cycle: 0.0,
-      amplitude: 0.25,
+      amplitude: 1.0,
       harmonics: 60,
     }
   }
@@ -808,6 +824,7 @@ impl QuickSin for f32 {
 }
 
 pub struct Triangle {
+  enable: bool,
   sequencer: Sequencer,
   length_counter: u8,
   linear_counter: u8,
@@ -826,6 +843,7 @@ const TRIANGLE_SEQUENCE: [f32; 32] = [
 impl Triangle {
   pub fn new() -> Self {
     Triangle {
+      enable: true,
       sequencer: Sequencer::new(),
       length_counter: 0x00,
       linear_counter: 0x00,
@@ -867,6 +885,7 @@ impl Triangle {
 
 /// https://www.nesdev.org/wiki/APU_Noise
 pub struct Noise {
+  enable: bool,
   sequencer: Sequencer,
   envelope: Envelope,
 
@@ -884,6 +903,7 @@ pub struct Noise {
 impl Noise {
   fn new() -> Self {
     Noise {
+      enable: true,
       sequencer: Sequencer::new(),
       envelope: Envelope::new(),
 
