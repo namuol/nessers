@@ -1,7 +1,5 @@
 use std::f32::consts::PI;
 
-use lazy_static::lazy_static;
-
 use crate::cart::Cart;
 
 // https://www.nesdev.org/wiki/Cycle_reference_chart
@@ -429,36 +427,25 @@ impl Apu {
       // Don't need wrapping_add here since we're always resetting to 0:
       self.frame_clock_counter += 1;
 
-      // https://www.nesdev.org/wiki/APU_Frame_Counter
-      //
-      // Assume 4-step sequence, for now.
-      //
-      // Really we need to check a flag which is set by writing to 0x4017; see
-      // the link above for details.
-      if true {
-        if self.frame_clock_counter == 3729 {
-          quarter_frame = true;
-        }
-
-        if self.frame_clock_counter == 7457 {
-          quarter_frame = true;
-          half_frame = true;
-        }
-
-        if self.frame_clock_counter == 11186 {
-          quarter_frame = true;
-        }
-
-        if self.frame_clock_counter == 14915 {
-          quarter_frame = true;
-          half_frame = true;
-          self.frame_clock_counter = 0;
-        }
+      if self.frame_clock_counter == 3729 {
+        quarter_frame = true;
       }
 
-      // TODO: 5-step sequence mode...
-      if false {
-        // ...
+      if self.frame_clock_counter == 7457 {
+        quarter_frame = true;
+        half_frame = true;
+      }
+
+      if self.frame_clock_counter == 11186 {
+        quarter_frame = true;
+      }
+
+      if (!self.five_step_mode && self.frame_clock_counter == 14915)
+        || (self.five_step_mode && self.frame_clock_counter == 18641)
+      {
+        quarter_frame = true;
+        half_frame = true;
+        self.frame_clock_counter = 0;
       }
 
       if quarter_frame {
