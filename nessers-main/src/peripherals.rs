@@ -68,7 +68,7 @@ impl BusDevice for Peripherals {
     None
   }
 
-  fn read(&mut self, addr: u16, _cart: &crate::cart::Cart) -> Option<u8> {
+  fn read(&mut self, addr: u16, _cart: &mut crate::cart::Cart) -> Option<u8> {
     match addr {
       0x4016 | 0x4017 => {
         let num = if addr == 0x4016 { 0 } else { 1 };

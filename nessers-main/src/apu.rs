@@ -381,7 +381,7 @@ impl Apu {
     None
   }
 
-  pub fn clock(&mut self, cart: &Cart) {
+  pub fn clock(&mut self, cart: &mut Cart) {
     // Sampling timing stuff:
     {
       self.time_until_next_sample -= TIME_PER_PPU_CLOCK;
@@ -1191,7 +1191,7 @@ impl Dmc {
     }
   }
 
-  pub fn clock(&mut self, cart: &Cart) {
+  pub fn clock(&mut self, cart: &mut Cart) {
     // Any time the sample buffer is in an empty state and bytes remaining is
     // not zero (including just after a write to $4015 that enables the channel,
     // regardless of where that write occurs relative to the bit counter
@@ -1216,7 +1216,7 @@ impl Dmc {
 
       // - The sample buffer is filled with the next sample byte read from the
       // current address, subject to whatever mapping hardware is present.
-      self.sample_buffer = match cart.cpu_mapper.read(self.current_addr) {
+      self.sample_buffer = match cart.cpu_read(self.current_addr) {
         Some(d) => Some(d),
         None => Some(0x00),
       };

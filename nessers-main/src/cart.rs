@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::mapper::{Mapper, MAPPERS};
+use crate::mapper::{Mapper, M000, MXXX};
 
 const HEADER_START: [u8; 4] = [
   0x4E, // N
@@ -9,15 +9,15 @@ const HEADER_START: [u8; 4] = [
   0x1A, // EOF
 ];
 
-#[derive(Clone)]
 #[allow(dead_code)]
 pub struct Cart {
   pub mirroring: Mirroring,
   has_ram: bool,
   has_trainer: bool,
-  pub cpu_mapper: CartCpuMapper,
-  pub ppu_mapper: CartPpuMapper,
   pub mapper_code: u8,
+  pub mapper: Box<dyn Mapper>,
+  prg: Vec<u8>,
+  chr: Vec<u8>,
 }
 #[derive(PartialEq, Debug, Clone, Copy)]
 pub enum Mirroring {
@@ -25,18 +25,6 @@ pub enum Mirroring {
   Vertical,
   OneScreenLo,
   OneScreenHi,
-}
-#[derive(Clone)]
-pub struct CartCpuMapper {
-  num_prg_banks: usize,
-  prg: Vec<u8>,
-  mapper: Mapper,
-}
-#[derive(Clone)]
-pub struct CartPpuMapper {
-  num_chr_banks: usize,
-  chr: Vec<u8>,
-  mapper: Mapper,
 }
 
 pub const HEADER_SIZE: usize = 16;
@@ -95,26 +83,23 @@ impl Cart {
     }
 
     let mapper_code = mapper_code_hi | (mapper_code_lo >> 4);
+    let mapper: Box<dyn Mapper> = match mapper_code {
+      000 => Box::new(M000::new(num_prg_banks)),
+      n => Box::new(MXXX::new(n)),
+    };
 
     Ok(Cart {
       mirroring,
       has_ram,
       has_trainer,
       mapper_code,
-      ppu_mapper: CartPpuMapper {
-        mapper: MAPPERS[mapper_code as usize].clone(),
-        num_chr_banks,
-        chr: if chr_size > 0 {
-          data[chr_start..chr_start + chr_size].to_vec()
-        } else {
-          vec![0x00; 1024 * 8]
-        },
+      mapper,
+      chr: if chr_size > 0 {
+        data[chr_start..chr_start + chr_size].to_vec()
+      } else {
+        vec![0x00; 1024 * 8]
       },
-      cpu_mapper: CartCpuMapper {
-        mapper: MAPPERS[mapper_code as usize].clone(),
-        num_prg_banks,
-        prg: data[prg_start..prg_start + prg_size].to_vec(),
-      },
+      prg: data[prg_start..prg_start + prg_size].to_vec(),
     })
   }
 
@@ -122,27 +107,29 @@ impl Cart {
     let contents = fs::read(filename).expect(&format!("Failure reading {}", filename));
     Cart::new(&contents)
   }
-}
 
-impl CartCpuMapper {
-  pub fn read(&self, addr: u16) -> Option<u8> {
-    let mapped_addr = (self.mapper.cpu_read)(addr, self.num_prg_banks)?;
+  pub fn safe_cpu_read(&self, addr: u16) -> Option<u8> {
+    let mapped_addr = self.mapper.safe_cpu_read(addr)?;
     Some(self.prg[mapped_addr as usize])
   }
-  pub fn write(&mut self, addr: u16, data: u8) -> Option<()> {
-    let mapped_addr = (self.mapper.cpu_write)(addr, self.num_prg_banks)?;
+
+  pub fn cpu_read(&mut self, addr: u16) -> Option<u8> {
+    let mapped_addr = self.mapper.cpu_read(addr)?;
+    Some(self.prg[mapped_addr as usize])
+  }
+
+  pub fn cpu_write(&mut self, addr: u16, data: u8) -> Option<()> {
+    let mapped_addr = self.mapper.cpu_write(addr)?;
     self.prg[mapped_addr as usize] = data;
     Some(())
   }
-}
 
-impl CartPpuMapper {
-  pub fn read(&self, addr: u16) -> Option<u8> {
-    let mapped_addr = (self.mapper.ppu_read)(addr, self.num_chr_banks)?;
+  pub fn ppu_read(&mut self, addr: u16) -> Option<u8> {
+    let mapped_addr = self.mapper.ppu_read(addr)?;
     Some(self.chr[mapped_addr as usize])
   }
-  pub fn write(&mut self, addr: u16, data: u8) -> Option<()> {
-    let mapped_addr = (self.mapper.ppu_write)(addr, self.num_chr_banks)?;
+  pub fn ppu_write(&mut self, addr: u16, data: u8) -> Option<()> {
+    let mapped_addr = self.mapper.ppu_write(addr)?;
     self.chr[mapped_addr as usize] = data;
     Some(())
   }
@@ -191,8 +178,8 @@ mod tests {
 
     match Cart::new(&data) {
       Ok(cart) => {
-        assert_eq!(cart.cpu_mapper.prg, vec![0x42; 16 * 1024]);
-        assert_eq!(cart.ppu_mapper.chr, vec![0x43; 8 * 1024]);
+        assert_eq!(cart.prg, vec![0x42; 16 * 1024]);
+        assert_eq!(cart.chr, vec![0x43; 8 * 1024]);
         assert_eq!(cart.mirroring, Mirroring::Vertical);
         assert_eq!(cart.has_ram, true);
         assert_eq!(cart.has_trainer, false);

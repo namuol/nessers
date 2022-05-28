@@ -74,8 +74,8 @@ impl Nes {
   }
 
   pub fn clock(&mut self) {
-    self.ppu.clock(&self.cart);
-    self.apu.clock(&self.cart);
+    self.ppu.clock(&mut self.cart);
+    self.apu.clock(&mut self.cart);
     if self.tick % 3 == 0 {
       if self.dma_active {
         if self.dma_dummy {
@@ -209,7 +209,7 @@ impl Nes {
 impl Bus<Cpu> for Nes {
   fn safe_read(&self, addr: u16) -> u8 {
     match None // Hehe, using None here just for formatting purposes:
-      .or(self.cart.cpu_mapper.read(addr))
+      .or(self.cart.safe_cpu_read(addr))
       .or(self.ram_mirror.safe_read(&self.ram, addr, &self.cart))
     {
       Some(data) => data,
@@ -219,13 +219,13 @@ impl Bus<Cpu> for Nes {
 
   fn read(&mut self, addr: u16) -> u8 {
     match None // Hehe, using None here just for formatting purposes:
-      .or(self.cart.cpu_mapper.read(addr))
-      .or(self.peripherals.read(addr, &self.cart))
-      .or(self.ram_mirror.read(&mut self.ram, addr, &self.cart))
+      .or(self.cart.cpu_read(addr))
+      .or(self.peripherals.read(addr, &mut self.cart))
+      .or(self.ram_mirror.read(&mut self.ram, addr, &mut self.cart))
       .or(
         self
           .ppu_registers_mirror
-          .read(&mut self.ppu, addr, &self.cart),
+          .read(&mut self.ppu, addr, &mut self.cart),
       ) {
       Some(data) => data,
       None => 0x00,
@@ -234,7 +234,7 @@ impl Bus<Cpu> for Nes {
 
   fn write(&mut self, addr: u16, data: u8) {
     None // Hehe, using None here just for formatting purposes:
-      .or_else(|| self.cart.cpu_mapper.write(addr, data))
+      .or_else(|| self.cart.cpu_write(addr, data))
       .or_else(|| self.apu.cpu_write(addr, data))
       .or_else(|| {
         // Writing to 0x4014
