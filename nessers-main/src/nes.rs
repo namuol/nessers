@@ -75,7 +75,7 @@ impl Nes {
 
   pub fn clock(&mut self) {
     self.ppu.clock(&self.cart);
-    self.apu.clock();
+    self.apu.clock(&self.cart);
     if self.tick % 3 == 0 {
       if self.dma_active {
         if self.dma_dummy {
@@ -165,6 +165,8 @@ impl Nes {
     let cpu = &mut self.cpu.clone();
     cpu.sig_reset(self);
     self.cpu = *cpu;
+
+    self.apu.reset();
   }
 
   pub fn trace(&self) -> String {
@@ -566,8 +568,8 @@ mod tests {
   #[test]
   fn nestest() {
     let mut nes = match Nes::new(
-      "nessers-main/src/test_fixtures/nestest.nes",
-      "nessers-main/src/test_fixtures/ntscpalette.pal",
+      "src/test_fixtures/nestest.nes",
+      "src/test_fixtures/ntscpalette.pal",
     ) {
       Ok(n) => n,
       Err(msg) => panic!("{}", msg),
@@ -576,15 +578,15 @@ mod tests {
     nes.cpu.pc = 0xC000;
     let mut line_num = 0;
     // First few traces:
-    read_lines("nessers-main/src/test_fixtures/nestest.log")
+    read_lines("src/test_fixtures/nestest.log")
       .unwrap()
       .for_each(|line| {
         line_num += 1;
         // After these lines we're dealing with APU functionality which isn't
         // implemented yet:
-        if line_num > 8980 {
-          return;
-        }
+        // if line_num > 8980 {
+        //   return;
+        // }
 
         // We strip the last part which contains PPU state and cycle count stuff
         // which we're not yet ready to test:
