@@ -75,7 +75,7 @@ impl Nes {
 
   pub fn clock(&mut self) {
     self.ppu.clock(&self.cart);
-    self.apu.clock();
+    self.apu.clock(&self.cart);
     if self.tick % 3 == 0 {
       if self.dma_active {
         if self.dma_dummy {
@@ -584,9 +584,9 @@ mod tests {
         line_num += 1;
         // After these lines we're dealing with APU functionality which isn't
         // implemented yet:
-        if line_num > 8980 {
-          return;
-        }
+        // if line_num > 8980 {
+        //   return;
+        // }
 
         // We strip the last part which contains PPU state and cycle count stuff
         // which we're not yet ready to test:
