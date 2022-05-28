@@ -167,6 +167,7 @@ impl Nes {
     self.cpu = *cpu;
 
     self.apu.reset();
+    self.cart.reset();
   }
 
   pub fn trace(&self) -> String {

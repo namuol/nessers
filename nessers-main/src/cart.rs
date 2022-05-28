@@ -138,6 +138,10 @@ impl Cart {
       None => self.hw_mirroring,
     }
   }
+
+  pub fn reset(&mut self) {
+    self.mapper.reset();
+  }
 }
 
 #[cfg(test)]

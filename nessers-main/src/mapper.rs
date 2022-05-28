@@ -20,6 +20,10 @@ pub trait Mapper {
   fn mirroring(&self) -> Option<Mirroring> {
     None
   }
+
+  fn reset(&mut self) {
+    // Default does nothing
+  }
 }
 
 pub struct M000 {
