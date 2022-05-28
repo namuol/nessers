@@ -811,7 +811,7 @@ impl Ppu {
     } else if addr >= 0x2000 && addr <= 0x3EFF {
       // 0x2000 -> 0x3EFF = nametable memory
       addr &= 0x0FFF;
-      let table = match cart.mirroring {
+      let table = match cart.mirroring() {
         Mirroring::Vertical => match addr {
           0x0000..=0x03FF => 0,
           0x0400..=0x07FF => 1,
@@ -866,7 +866,7 @@ impl Ppu {
     } else if addr >= 0x2000 && addr <= 0x3EFF {
       // 0x2000 -> 0x3EFF = nametable memory
       addr &= 0x0FFF;
-      let table = match cart.mirroring {
+      let table = match cart.mirroring() {
         Mirroring::Vertical => match addr {
           0x0000..=0x03FF => 0,
           0x0400..=0x07FF => 1,

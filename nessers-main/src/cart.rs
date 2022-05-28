@@ -11,7 +11,7 @@ const HEADER_START: [u8; 4] = [
 
 #[allow(dead_code)]
 pub struct Cart {
-  pub mirroring: Mirroring,
+  hw_mirroring: Mirroring,
   has_ram: bool,
   has_trainer: bool,
   pub mapper_code: u8,
@@ -60,7 +60,7 @@ impl Cart {
     let chr_size = num_chr_banks * 8 * 1024;
 
     let flags_6 = data[6];
-    let mirroring = if flags_6 & FLAG_MIRRORING != 0 {
+    let hw_mirroring = if flags_6 & FLAG_MIRRORING != 0 {
       Mirroring::Vertical
     } else {
       Mirroring::Horizontal
@@ -89,7 +89,7 @@ impl Cart {
     };
 
     Ok(Cart {
-      mirroring,
+      hw_mirroring,
       has_ram,
       has_trainer,
       mapper_code,
@@ -112,14 +112,12 @@ impl Cart {
     let mapped_addr = self.mapper.safe_cpu_read(addr)?;
     Some(self.prg[mapped_addr as usize])
   }
-
   pub fn cpu_read(&mut self, addr: u16) -> Option<u8> {
     let mapped_addr = self.mapper.cpu_read(addr)?;
     Some(self.prg[mapped_addr as usize])
   }
-
   pub fn cpu_write(&mut self, addr: u16, data: u8) -> Option<()> {
-    let mapped_addr = self.mapper.cpu_write(addr)?;
+    let mapped_addr = self.mapper.cpu_write(addr, data)?;
     self.prg[mapped_addr as usize] = data;
     Some(())
   }
@@ -129,9 +127,16 @@ impl Cart {
     Some(self.chr[mapped_addr as usize])
   }
   pub fn ppu_write(&mut self, addr: u16, data: u8) -> Option<()> {
-    let mapped_addr = self.mapper.ppu_write(addr)?;
+    let mapped_addr = self.mapper.ppu_write(addr, data)?;
     self.chr[mapped_addr as usize] = data;
     Some(())
+  }
+
+  pub fn mirroring(&self) -> Mirroring {
+    match self.mapper.mirroring() {
+      Some(mirroring) => mirroring,
+      None => self.hw_mirroring,
+    }
   }
 }
 
@@ -180,7 +185,7 @@ mod tests {
       Ok(cart) => {
         assert_eq!(cart.prg, vec![0x42; 16 * 1024]);
         assert_eq!(cart.chr, vec![0x43; 8 * 1024]);
-        assert_eq!(cart.mirroring, Mirroring::Vertical);
+        assert_eq!(cart.hw_mirroring, Mirroring::Vertical);
         assert_eq!(cart.has_ram, true);
         assert_eq!(cart.has_trainer, false);
       }
