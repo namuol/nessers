@@ -408,7 +408,7 @@ impl Ppu {
       .set_fine_y(self.tram_addr.fine_y());
   }
 
-  pub fn clock(&mut self, cart: &Cart) {
+  pub fn clock(&mut self, cart: &mut Cart) {
     if self.frame_complete {
       self.frame_complete = false;
     }
@@ -744,7 +744,7 @@ impl Ppu {
     }
   }
 
-  fn get_color_from_palette_ram(&self, palette: u8, pixel: u8, cart: &Cart) -> Color {
+  fn get_color_from_palette_ram(&self, palette: u8, pixel: u8, cart: &mut Cart) -> Color {
     let idx = self.ppu_read(0x3F00 as u16 + ((palette << 2) + pixel) as u16, cart);
     self.palette.colors[(idx % 64) as usize]
   }
@@ -795,10 +795,10 @@ impl Ppu {
   }
 
   #[allow(unused_comparisons)]
-  pub fn ppu_read(&self, addr_: u16, cart: &Cart) -> u8 {
+  pub fn ppu_read(&self, addr_: u16, cart: &mut Cart) -> u8 {
     let mut addr = addr_ & 0x3FFF;
 
-    match cart.ppu_mapper.read(addr) {
+    match cart.ppu_read(addr) {
       Some(data) => {
         return data;
       }
@@ -852,7 +852,7 @@ impl Ppu {
   pub fn ppu_write(&mut self, addr_: u16, data: u8, cart: &mut Cart) {
     let mut addr = addr_ & 0x3FFF;
 
-    match cart.ppu_mapper.write(addr, data) {
+    match cart.ppu_write(addr, data) {
       Some(()) => {
         return;
       }
@@ -982,7 +982,7 @@ impl Ppu {
     &mut self,
     table_number: u16,
     palette: u8,
-    cart: &Cart,
+    cart: &mut Cart,
   ) -> [[u8; 4]; 128 * 128] {
     let mut result = [[0x00, 0x00, 0x00, 0xFF]; 128 * 128];
     // We want to render 16x16 tiles
@@ -1066,7 +1066,7 @@ impl Ppu {
     result
   }
 
-  pub fn get_palettes(&mut self, cart: &Cart) -> [[[u8; 4]; 4]; 8] {
+  pub fn get_palettes(&mut self, cart: &mut Cart) -> [[[u8; 4]; 4]; 8] {
     let mut result = [[[0x00, 0x00, 0x00, 0xFF]; 4]; 8];
 
     for palette_num in 0..8 {
@@ -1097,7 +1097,7 @@ impl BusDeviceRange for Ppu {
 impl BusDevice for Ppu {
   // From `cpuRead` in
   // https://www.youtube.com/watch?v=xdzOvpYPmGE&list=PLrOv9FMX8xJHqMvSGB_9G9nZZ_4IgteYf&index=4
-  fn read(&mut self, addr: u16, cart: &Cart) -> Option<u8> {
+  fn read(&mut self, addr: u16, cart: &mut Cart) -> Option<u8> {
     if !self.in_range(addr) {
       return None;
     }
