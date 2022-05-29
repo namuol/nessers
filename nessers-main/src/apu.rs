@@ -73,12 +73,12 @@ impl Apu {
 
     let mut sample: f32 = 0.0;
     for i in 0..self.pulse.len() {
-      sample += self.pulse[i].sample * 0.25;
+      sample += self.pulse[i].sample * 0.45;
     }
 
-    sample += self.triangle.sample * 0.25;
-    sample += self.noise.sample * 0.25;
-    sample += self.dmc.sample;
+    sample += self.triangle.sample * 0.35;
+    sample += self.noise.sample * 0.15;
+    sample += self.dmc.sample * 0.5;
     sample
   }
 
