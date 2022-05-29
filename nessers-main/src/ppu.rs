@@ -617,10 +617,10 @@ impl Ppu {
               // The tile_id
               tile_id = if y_diff < 8 {
                 // Top 8x8 of the 8x16 sprite:
-                sprite.tile_id & 0b1111_1110
+                (sprite.tile_id & 0b1111_1110) + if sprite.flip_y() { 1 } else { 0 }
               } else {
                 // Bottom 8x8 of the 8x16 sprite; effectively one full row down:
-                sprite.tile_id & 0b1111_1110
+                (sprite.tile_id & 0b1111_1110) + if sprite.flip_y() { 0 } else { 1 }
               };
             }
             // Otherwise all sprites share the same table, controlled with a
