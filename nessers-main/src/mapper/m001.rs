@@ -104,11 +104,11 @@ impl Mapper for M001 {
     self.control = 0x1C;
   }
 
-  fn cpu_write(&mut self, addr: u16, data: u8) -> Option<usize> {
+  fn cpu_write(&mut self, addr: u16, data: u8) -> MappedWrite {
     match addr {
       0x6000..=0x7FFF => {
         self.ram[(addr - 0x6000) as usize] = data;
-        None
+        Wrote
       }
       0x8000..=0xFFFF => {
         // If bit 7 is set, we are resetting...
@@ -117,7 +117,7 @@ impl Mapper for M001 {
           // PRG ROM at $C000-$FFFF to the last bank.
           self.load = 0b1000_0000;
           self.control |= 0x0C;
-          return None;
+          return WSkip;
         }
 
         // ...otherwise we are loading into our shift register serially:
@@ -129,7 +129,7 @@ impl Mapper for M001 {
         //
         // ----_--X-
         if (self.load & 0b0000_0100) == 0 {
-          return None;
+          return WSkip;
         }
 
         // If this *was* our fifth write, then we want to copy the shift register
@@ -145,9 +145,9 @@ impl Mapper for M001 {
 
         // ...and finally, reset the load shift register:
         self.load = 0b1000_0000;
-        None
+        WSkip
       }
-      _ => None,
+      _ => WSkip,
     }
   }
 
@@ -171,7 +171,7 @@ impl Mapper for M001 {
       0x8000.. => match self.prg_mode() {
         PrgMode::_32K => {
           let bank = ((self.prg_bank & 0b01110) >> 1) as usize;
-          Addr(((addr as usize) - 0x8000) + bank * 0x8000)
+          RAddr(((addr as usize) - 0x8000) + bank * 0x8000)
         }
         PrgMode::_16Kx2(fix_at) => match addr {
           0x8000..=0xBFFF => {
@@ -179,20 +179,20 @@ impl Mapper for M001 {
               _8000 => 0,
               _C000 => (self.prg_bank & 0b01111) as usize,
             };
-            Addr(((addr as usize) - 0x8000) + bank * 0x4000)
+            RAddr(((addr as usize) - 0x8000) + bank * 0x4000)
           }
           0xC000..=0xFFFF => {
             let bank = match fix_at {
               _8000 => (self.prg_bank & 0b01111) as usize,
               _C000 => self.num_prg_banks - 1,
             };
-            Addr(((addr as usize) - 0xC000) + bank * 0x4000)
+            RAddr(((addr as usize) - 0xC000) + bank * 0x4000)
           }
-          _ => Skip,
+          _ => RSkip,
         },
       },
 
-      _ => Skip,
+      _ => RSkip,
     }
   }
 
@@ -201,20 +201,20 @@ impl Mapper for M001 {
       ChrMode::_8K => match addr {
         0x0000..=0x1FFF => {
           let bank = ((self.chr_bank_0 & 0b000_11110) >> 1) as usize;
-          Addr(((addr as usize) - 0x0000) + bank * 0x2000)
+          RAddr(((addr as usize) - 0x0000) + bank * 0x2000)
         }
-        _ => Skip,
+        _ => RSkip,
       },
       ChrMode::_4Kx2 => match addr {
         0x0000..=0x0FFF => {
           let bank = self.chr_bank_0 as usize;
-          Addr(((addr as usize) - 0x0000) + bank * 0x1000)
+          RAddr(((addr as usize) - 0x0000) + bank * 0x1000)
         }
         0x1000..=0x1FFF => {
           let bank = self.chr_bank_1 as usize;
-          Addr(((addr as usize) - 0x1000) + bank * 0x1000)
+          RAddr(((addr as usize) - 0x1000) + bank * 0x1000)
         }
-        _ => Skip,
+        _ => RSkip,
       },
     }
   }

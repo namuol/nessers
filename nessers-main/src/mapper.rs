@@ -9,31 +9,37 @@ pub mod m003;
 
 pub enum MappedRead {
   Data(u8),
-  Addr(usize),
-  Skip,
+  RAddr(usize),
+  RSkip,
 }
-
 use MappedRead::*;
+
+pub enum MappedWrite {
+  WAddr(usize),
+  Wrote,
+  WSkip,
+}
+use MappedWrite::*;
 
 pub trait Mapper {
   fn safe_cpu_read(&self, addr: u16) -> MappedRead;
   fn cpu_read(&mut self, addr: u16) -> MappedRead {
     self.safe_cpu_read(addr)
   }
-  fn cpu_write(&mut self, addr: u16, data: u8) -> Option<usize> {
+  fn cpu_write(&mut self, addr: u16, data: u8) -> MappedWrite {
     match self.safe_cpu_read(addr) {
-      Addr(addr) => Some(addr),
-      _ => None,
+      RAddr(addr) => WAddr(addr),
+      _ => WSkip,
     }
   }
   fn safe_ppu_read(&self, addr: u16) -> MappedRead;
   fn ppu_read(&mut self, addr: u16) -> MappedRead {
     self.safe_ppu_read(addr)
   }
-  fn ppu_write(&mut self, addr: u16, data: u8) -> Option<usize> {
+  fn ppu_write(&mut self, addr: u16, data: u8) -> MappedWrite {
     match self.safe_ppu_read(addr) {
-      Addr(addr) => Some(addr),
-      _ => None,
+      RAddr(addr) => WAddr(addr),
+      _ => WSkip,
     }
   }
   fn mirroring(&self) -> Option<Mirroring> {
@@ -67,16 +73,16 @@ pub fn safe_cpu_read(num_banks: usize, addr: u16) -> MappedRead {
   if addr >= 0x8000 && addr <= 0xFFFF {
     // - num_banks > 1 => 32k rom => map 0x8000 to 0x0000
     // - else, this is a 16k rom => mirror 0x8000 thru the full addr range
-    Addr((addr & if num_banks > 1 { 0x7FFF } else { 0x3FFF }) as usize)
+    RAddr((addr & if num_banks > 1 { 0x7FFF } else { 0x3FFF }) as usize)
   } else {
-    Skip
+    RSkip
   }
 }
 
 pub fn safe_ppu_read(addr: u16) -> MappedRead {
   if addr >= 0x0000 && addr <= 0x1FFF {
-    Addr(addr as usize)
+    RAddr(addr as usize)
   } else {
-    Skip
+    RSkip
   }
 }

@@ -17,7 +17,7 @@ impl M002 {
 }
 
 impl Mapper for M002 {
-  fn cpu_write(&mut self, addr: u16, data: u8) -> Option<usize> {
+  fn cpu_write(&mut self, addr: u16, data: u8) -> MappedWrite {
     if addr >= 0x8000 && addr <= 0xFFFF {
       // ```
       // 7  bit  0
@@ -38,15 +38,15 @@ impl Mapper for M002 {
     }
 
     // Return none because we aren't actually writing anything:
-    None
+    WSkip
   }
   fn safe_cpu_read(&self, addr: u16) -> MappedRead {
     match addr {
       // CPU $8000-$BFFF: 16 KB switchable PRG ROM bank
-      0x8000..=0xBFFF => Addr(((addr as usize) - 0x8000) + (self.selected_bank as usize) * 0x4000),
+      0x8000..=0xBFFF => RAddr(((addr as usize) - 0x8000) + (self.selected_bank as usize) * 0x4000),
       // CPU $C000-$FFFF: 16 KB PRG ROM bank, fixed to the last bank
-      0xC000..=0xFFFF => Addr(((addr as usize) - 0xC000) + (self.num_banks - 1) * 0x4000),
-      _ => Skip,
+      0xC000..=0xFFFF => RAddr(((addr as usize) - 0xC000) + (self.num_banks - 1) * 0x4000),
+      _ => RSkip,
     }
   }
 

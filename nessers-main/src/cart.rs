@@ -1,6 +1,8 @@
 use std::fs;
 
-use crate::mapper::{m000::M000, m001::M001, m002::M002, m003::M003, MappedRead::*, Mapper, MXXX};
+use crate::mapper::{
+  m000::M000, m001::M001, m002::M002, m003::M003, MappedRead::*, MappedWrite::*, Mapper, MXXX,
+};
 
 const HEADER_START: [u8; 4] = [
   0x4E, // N
@@ -113,35 +115,45 @@ impl Cart {
 
   pub fn safe_cpu_read(&self, addr: u16) -> Option<u8> {
     match self.mapper.safe_cpu_read(addr) {
-      Addr(mapped_addr) => Some(self.prg[mapped_addr as usize]),
+      RAddr(mapped_addr) => Some(self.prg[mapped_addr as usize]),
       Data(data) => Some(data),
-      Skip => None,
+      RSkip => None,
     }
   }
   pub fn cpu_read(&mut self, addr: u16) -> Option<u8> {
     match self.mapper.cpu_read(addr) {
-      Addr(mapped_addr) => Some(self.prg[mapped_addr as usize]),
+      RAddr(mapped_addr) => Some(self.prg[mapped_addr as usize]),
       Data(data) => Some(data),
-      Skip => None,
+      RSkip => None,
     }
   }
   pub fn cpu_write(&mut self, addr: u16, data: u8) -> Option<()> {
-    let mapped_addr = self.mapper.cpu_write(addr, data)?;
-    self.prg[mapped_addr as usize] = data;
-    Some(())
+    match self.mapper.cpu_write(addr, data) {
+      WAddr(mapped_addr) => {
+        self.prg[mapped_addr as usize] = data;
+        Some(())
+      }
+      Wrote => Some(()),
+      WSkip => None,
+    }
   }
 
   pub fn ppu_read(&mut self, addr: u16) -> Option<u8> {
     match self.mapper.ppu_read(addr) {
-      Addr(mapped_addr) => Some(self.chr[mapped_addr as usize]),
+      RAddr(mapped_addr) => Some(self.chr[mapped_addr as usize]),
       Data(data) => Some(data),
-      Skip => None,
+      RSkip => None,
     }
   }
   pub fn ppu_write(&mut self, addr: u16, data: u8) -> Option<()> {
-    let mapped_addr = self.mapper.ppu_write(addr, data)?;
-    self.chr[mapped_addr as usize] = data;
-    Some(())
+    match self.mapper.ppu_write(addr, data) {
+      WAddr(mapped_addr) => {
+        self.chr[mapped_addr as usize] = data;
+        Some(())
+      }
+      Wrote => Some(()),
+      WSkip => None,
+    }
   }
 
   pub fn mirroring(&self) -> Mirroring {
