@@ -826,20 +826,8 @@ impl Ppu {
           0x0C00..=0x0FFF => 1,
           _ => 0x00,
         },
-        Mirroring::OneScreenLo => match addr {
-          0x0000..=0x03FF => 0,
-          0x0400..=0x07FF => 0,
-          0x0800..=0x0BFF => 0,
-          0x0C00..=0x0FFF => 0,
-          _ => 0x00,
-        },
-        Mirroring::OneScreenHi => match addr {
-          0x0000..=0x03FF => 1,
-          0x0400..=0x07FF => 1,
-          0x0800..=0x0BFF => 1,
-          0x0C00..=0x0FFF => 1,
-          _ => 0x00,
-        },
+        Mirroring::OneScreenLo => 0,
+        Mirroring::OneScreenHi => 1,
       };
       let idx = (addr & 0x03FF) as usize;
 
@@ -893,20 +881,8 @@ impl Ppu {
           0x0C00..=0x0FFF => 1,
           _ => 0x00,
         },
-        Mirroring::OneScreenLo => match addr {
-          0x0000..=0x03FF => 0,
-          0x0400..=0x07FF => 0,
-          0x0800..=0x0BFF => 0,
-          0x0C00..=0x0FFF => 0,
-          _ => 0x00,
-        },
-        Mirroring::OneScreenHi => match addr {
-          0x0000..=0x03FF => 1,
-          0x0400..=0x07FF => 1,
-          0x0800..=0x0BFF => 1,
-          0x0C00..=0x0FFF => 1,
-          _ => 0x00,
-        },
+        Mirroring::OneScreenLo => 0,
+        Mirroring::OneScreenHi => 1,
       };
       let idx = (addr & 0x03FF) as usize;
 

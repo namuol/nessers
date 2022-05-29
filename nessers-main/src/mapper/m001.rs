@@ -46,7 +46,7 @@ pub struct M001 {
   chr_bank_1: u8,
   prg_bank: u8,
 
-  ram: Vec<u8>,
+  ram: [u8; 8 * 1024],
 }
 
 impl M001 {
@@ -73,7 +73,7 @@ impl M001 {
       chr_bank_0: 0x00,
       chr_bank_1: 0x00,
       prg_bank: 0x00,
-      ram: vec![],
+      ram: [0x00; 8 * 1024],
     }
   }
 
@@ -88,9 +88,9 @@ impl M001 {
 
   fn chr_mode(&self) -> ChrMode {
     if (self.control & 0b10000) != 0 {
-      ChrMode::_8K
-    } else {
       ChrMode::_4Kx2
+    } else {
+      ChrMode::_8K
     }
   }
 }
@@ -105,44 +105,50 @@ impl Mapper for M001 {
   }
 
   fn cpu_write(&mut self, addr: u16, data: u8) -> Option<usize> {
-    if addr >= 0x8000 && addr <= 0xFFFF {
-      // If bit 7 is set, we are resetting...
-      if (data & 0b1000_0000) != 0 {
-        // Reset load register and write Control with (Control OR $0C), locking
-        // PRG ROM at $C000-$FFFF to the last bank.
+    match addr {
+      0x6000..=0x7FFF => {
+        self.ram[(addr - 0x6000) as usize] = data;
+        None
+      }
+      0x8000..=0xFFFF => {
+        // If bit 7 is set, we are resetting...
+        if (data & 0b1000_0000) != 0 {
+          // Reset load register and write Control with (Control OR $0C), locking
+          // PRG ROM at $C000-$FFFF to the last bank.
+          self.load = 0b1000_0000;
+          self.control |= 0x0C;
+          return None;
+        }
+
+        // ...otherwise we are loading into our shift register serially:
+        self.load >>= 1;
+        self.load |= 0b1000_0000 & (data << 7);
+
+        // Check to see if this is the fifth write; if the 7th bit (always reset
+        // to 1) has been shifted over 5 times, it should be in this position:
+        //
+        // ----_--X-
+        if (self.load & 0b0000_0100) == 0 {
+          return None;
+        }
+
+        // If this *was* our fifth write, then we want to copy the shift register
+        // (`load`) into the appropriate internal register based on bits 13 and 14
+        // of the address we're writing to right now.
+        match addr {
+          0x8000..=0x9FFF => self.control = self.load >> 3,
+          0xA000..=0xBFFF => self.chr_bank_0 = self.load >> 3,
+          0xC000..=0xDFFF => self.chr_bank_1 = self.load >> 3,
+          0xE000..=0xFFFF => self.prg_bank = self.load >> 3,
+          _ => {}
+        }
+
+        // ...and finally, reset the load shift register:
         self.load = 0b1000_0000;
-        self.control |= 0x0C;
-        return None;
+        None
       }
-
-      // ...otherwise we are loading into our shift register serially:
-      self.load >>= 1;
-      self.load |= 0b1000_0000 & (data << 7);
-
-      // Check to see if this is the fifth write; if the 7th bit (always reset
-      // to 1) has been shifted over 5 times, it should be in this position:
-      //
-      // ----_--X-
-      if (self.load & 0b0000_0100) == 0 {
-        return None;
-      }
-
-      // If this *was* our fifth write, then we want to copy the shift register
-      // (`load`) into the appropriate internal register based on bits 13 and 14
-      // of the address we're writing to right now.
-      match addr {
-        0x8000..=0x9FFF => self.control = self.load >> 3,
-        0xA000..=0xBFFF => self.chr_bank_0 = self.load >> 3,
-        0xC000..=0xDFFF => self.chr_bank_1 = self.load >> 3,
-        0xE000..=0xFFFF => self.prg_bank = self.load >> 3,
-        _ => {}
-      }
-
-      // ...and finally, reset the load shift register:
-      self.load = 0b1000_0000;
+      _ => None,
     }
-
-    None
   }
 
   fn safe_cpu_read(&self, addr: u16) -> MappedRead {
@@ -151,7 +157,7 @@ impl Mapper for M001 {
       // optional RAM bank.
       //
       // TODO: Should we make this configurable based on the cart's settings?
-      0x6000..=0x7FFF => Data(self.ram[(addr & 0x1FFF) as usize]),
+      0x6000..=0x7FFF => Data(self.ram[(addr - 0x6000) as usize]),
 
       // ```
       // 4bit0
@@ -194,7 +200,7 @@ impl Mapper for M001 {
     match self.chr_mode() {
       ChrMode::_8K => match addr {
         0x0000..=0x1FFF => {
-          let bank = ((self.chr_bank_0 & 0b11110) >> 1) as usize;
+          let bank = ((self.chr_bank_0 & 0b000_11110) >> 1) as usize;
           Addr(((addr as usize) - 0x0000) + bank * 0x2000)
         }
         _ => Skip,
