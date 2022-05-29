@@ -826,8 +826,8 @@ impl Ppu {
           0x0C00..=0x0FFF => 1,
           _ => 0x00,
         },
-        Mirroring::OneScreenLo => todo!(),
-        Mirroring::OneScreenHi => todo!(),
+        Mirroring::OneScreenLo => 0,
+        Mirroring::OneScreenHi => 1,
       };
       let idx = (addr & 0x03FF) as usize;
 
@@ -881,8 +881,8 @@ impl Ppu {
           0x0C00..=0x0FFF => 1,
           _ => 0x00,
         },
-        Mirroring::OneScreenLo => todo!(),
-        Mirroring::OneScreenHi => todo!(),
+        Mirroring::OneScreenLo => 0,
+        Mirroring::OneScreenHi => 1,
       };
       let idx = (addr & 0x03FF) as usize;
 
