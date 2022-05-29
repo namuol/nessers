@@ -34,7 +34,7 @@ impl Mapper for M002 {
       //
       // TODO: To make use of all 8-bits for a 4 MB PRG ROM, an NES 2.0 header
       // must be used (iNES can only effectively go to 2 MB).
-      self.selected_bank = data;
+      self.selected_bank = data & 0b0000_0111;
     }
 
     // Return none because we aren't actually writing anything:
