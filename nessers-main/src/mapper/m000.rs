@@ -1,6 +1,6 @@
 #![allow(unused_comparisons)]
 
-use super::{safe_cpu_read, safe_ppu_read, Mapper};
+use super::*;
 
 pub struct M000 {
   num_banks: usize,
@@ -13,11 +13,11 @@ impl M000 {
 }
 
 impl Mapper for M000 {
-  fn safe_cpu_read(&self, addr: u16) -> Option<usize> {
+  fn safe_cpu_read(&self, addr: u16) -> MappedRead {
     safe_cpu_read(self.num_banks, addr)
   }
 
-  fn safe_ppu_read(&self, addr: u16) -> Option<usize> {
+  fn safe_ppu_read(&self, addr: u16) -> MappedRead {
     safe_ppu_read(addr)
   }
 }

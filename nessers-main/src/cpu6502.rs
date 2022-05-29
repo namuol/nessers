@@ -2915,7 +2915,7 @@ mod tests {
     }
     fn read(&mut self, addr: u16) -> u8 {
       for i in 0..self.devices.len() {
-        match self.devices[i].read(addr, &self.cart) {
+        match self.devices[i].read(addr, &mut self.cart) {
           None => (),
           Some(data) => {
             return data;

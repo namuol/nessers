@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::mapper::{m000::M000, m002::M002, m003::M003, Mapper, MXXX};
+use crate::mapper::{m000::M000, m001::M001, m002::M002, m003::M003, MappedRead::*, Mapper, MXXX};
 
 const HEADER_START: [u8; 4] = [
   0x4E, // N
@@ -85,6 +85,7 @@ impl Cart {
     let mapper_code = mapper_code_hi | (mapper_code_lo >> 4);
     let mapper: Box<dyn Mapper> = match mapper_code {
       000 => Box::new(M000::new(num_prg_banks)),
+      001 => Box::new(M001::new(num_prg_banks)),
       002 => Box::new(M002::new(num_prg_banks)),
       003 => Box::new(M003::new(num_prg_banks)),
       n => Box::new(MXXX::new(n)),
@@ -111,12 +112,18 @@ impl Cart {
   }
 
   pub fn safe_cpu_read(&self, addr: u16) -> Option<u8> {
-    let mapped_addr = self.mapper.safe_cpu_read(addr)?;
-    Some(self.prg[mapped_addr as usize])
+    match self.mapper.safe_cpu_read(addr) {
+      Addr(mapped_addr) => Some(self.prg[mapped_addr as usize]),
+      Data(data) => Some(data),
+      Skip => None,
+    }
   }
   pub fn cpu_read(&mut self, addr: u16) -> Option<u8> {
-    let mapped_addr = self.mapper.cpu_read(addr)?;
-    Some(self.prg[mapped_addr as usize])
+    match self.mapper.cpu_read(addr) {
+      Addr(mapped_addr) => Some(self.prg[mapped_addr as usize]),
+      Data(data) => Some(data),
+      Skip => None,
+    }
   }
   pub fn cpu_write(&mut self, addr: u16, data: u8) -> Option<()> {
     let mapped_addr = self.mapper.cpu_write(addr, data)?;
@@ -125,8 +132,11 @@ impl Cart {
   }
 
   pub fn ppu_read(&mut self, addr: u16) -> Option<u8> {
-    let mapped_addr = self.mapper.ppu_read(addr)?;
-    Some(self.chr[mapped_addr as usize])
+    match self.mapper.ppu_read(addr) {
+      Addr(mapped_addr) => Some(self.chr[mapped_addr as usize]),
+      Data(data) => Some(data),
+      Skip => None,
+    }
   }
   pub fn ppu_write(&mut self, addr: u16, data: u8) -> Option<()> {
     let mapped_addr = self.mapper.ppu_write(addr, data)?;
