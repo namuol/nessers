@@ -1,6 +1,6 @@
 use std::fs;
 
-use crate::mapper::{Mapper, M000, MXXX};
+use crate::mapper::{m000::M000, m002::M002, m003::M003, Mapper, MXXX};
 
 const HEADER_START: [u8; 4] = [
   0x4E, // N
@@ -85,6 +85,8 @@ impl Cart {
     let mapper_code = mapper_code_hi | (mapper_code_lo >> 4);
     let mapper: Box<dyn Mapper> = match mapper_code {
       000 => Box::new(M000::new(num_prg_banks)),
+      002 => Box::new(M002::new(num_prg_banks)),
+      003 => Box::new(M003::new(num_prg_banks)),
       n => Box::new(MXXX::new(n)),
     };
 
