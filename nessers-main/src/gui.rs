@@ -1,4 +1,4 @@
-use crate::nes::Nes;
+use crate::{cpu6502::NMI_POINTER, disassemble::disassemble, nes::Nes};
 
 use egui::{ClippedMesh, Context, TexturesDelta};
 use egui_memory_editor::{option_data::MemoryEditorOptions, MemoryEditor};
@@ -23,7 +23,8 @@ pub(crate) struct Framework {
 /// Example application state. A real application will need a lot more state than this.
 struct Gui {
   bus_open: bool,
-  memory_editor: MemoryEditor,
+  bus_editor: MemoryEditor,
+  debugger_open: bool,
   search_string: String,
   search_pattern: Option<Vec<u8>>,
 }
@@ -129,13 +130,14 @@ impl Gui {
     let mut opts = MemoryEditorOptions::default();
     opts.is_options_collapsed = true;
     opts.show_ascii = false;
-    let memory_editor = MemoryEditor::new()
+    let bus_editor = MemoryEditor::new()
       .with_window_title("Bus editor")
       .with_options(opts)
       .with_address_range("All", 0..0xFFFF);
     Self {
       bus_open: false,
-      memory_editor,
+      debugger_open: false,
+      bus_editor,
       search_string: String::new(),
       search_pattern: None,
     }
@@ -150,6 +152,11 @@ impl Gui {
         ui.menu_button("Debug", |ui| {
           if ui.button("Bus editor").clicked() {
             self.bus_open = true;
+            ui.close_menu();
+          }
+
+          if ui.button("Debugger").clicked() {
+            self.debugger_open = true;
             ui.close_menu();
           }
         })
@@ -203,50 +210,103 @@ impl Gui {
       self.search_pattern = None;
     }
 
-    egui::Window::new("Bus editor").show(ctx, |ui| {
-      ui.label("Search:");
-      ui.text_edit_singleline(&mut self.search_string);
-      if let Some(search_pattern) = self.search_pattern.clone() {
-        ui.label(
-          search_pattern
-            .iter()
-            .map(|b| format!("{:02X}", b))
-            .collect::<Vec<String>>()
-            .join(" "),
-        );
-      }
+    egui::Window::new("Bus editor")
+      .open(&mut self.bus_open)
+      .show(ctx, |ui| {
+        ui.label("Search:");
+        ui.text_edit_singleline(&mut self.search_string);
+        if let Some(search_pattern) = self.search_pattern.clone() {
+          ui.label(
+            search_pattern
+              .iter()
+              .map(|b| format!("{:02X}", b))
+              .collect::<Vec<String>>()
+              .join(" "),
+          );
+        }
 
-      self.memory_editor.draw_editor_contents(
-        ui,
-        // &mut self.bus_open,
-        nes,
-        // Read
-        |nes, addr| Some(nes.safe_cpu_read(addr as u16)),
-        // Write
-        |nes, addr, value| nes.cpu_write(addr as u16, value),
-        // Highlight
-        |nes, addr| match &self.search_pattern {
-          Some(pattern) => {
-            // Read ahead until we hit something that isn't in our pattern
-            for i in 0..pattern.len() {
-              let byte = nes.safe_cpu_read((addr + i) as u16);
-              if byte != pattern[i] {
-                return None;
+        self.bus_editor.draw_editor_contents(
+          ui,
+          // &mut self.bus_open,
+          nes,
+          // Read
+          |nes, addr| Some(nes.safe_cpu_read(addr as u16)),
+          // Write
+          |nes, addr, value| nes.cpu_write(addr as u16, value),
+          // Highlight
+          |nes, addr| match &self.search_pattern {
+            Some(pattern) => {
+              // Read ahead until we hit something that isn't in our pattern
+              for i in 0..pattern.len() {
+                let byte = nes.safe_cpu_read((addr + i) as u16);
+                if byte != pattern[i] {
+                  return None;
+                }
               }
-            }
 
-            // ...if we get here then we know our pattern matches the next N
-            // bytes:
-            Some((
-              pattern.len(),
-              egui::Color32::LIGHT_RED,
-              egui::Color32::BLACK,
-            ))
+              // ...if we get here then we know our pattern matches the next N
+              // bytes:
+              Some((
+                pattern.len(),
+                egui::Color32::LIGHT_RED,
+                egui::Color32::BLACK,
+              ))
+            }
+            None => None,
+          },
+        )
+      });
+
+    egui::Window::new("Debugger")
+      .open(&mut self.debugger_open)
+      .show(ctx, |ui| {
+        let disassembled = disassemble(nes, nes.cpu.pc, 128);
+        let mut disassembled_output: Vec<String> = vec![];
+        let mut pc_idx: i32 = 0;
+        let mut idx: i32 = 0;
+        for o in disassembled {
+          let current = nes.cpu.pc == o.addr;
+          if current {
+            pc_idx = idx;
           }
-          None => None,
-        },
-      )
-    });
+          disassembled_output.push(format!(
+            "{} ${:04X}: {} {}",
+            if current { ">" } else { " " },
+            o.addr,
+            o.instruction_name,
+            o.params
+          ));
+          idx += 1;
+        }
+        let start = (pc_idx - 8).max(0).min(disassembled_output.len() as i32) as usize;
+        let end = ((start as i32) + 32)
+          .max(0)
+          .min(disassembled_output.len() as i32) as usize;
+        let disassembled_output = &disassembled_output[start..end];
+        ui.code(format!(
+          "PC: {:04X}        PPU: {:02X} {:08b}",
+          nes.cpu.pc, nes.ppu.status, nes.ppu.status
+        ));
+        ui.code(format!(
+          " A: {:02X} ({:03})   CTRL: {:02X} {:08b}",
+          nes.cpu.a, nes.cpu.a, nes.ppu.control, nes.ppu.control
+        ));
+        ui.code(format!(
+          " X: {:02X} ({:03})   MASK: {:02X} {:08b}",
+          nes.cpu.x, nes.cpu.x, nes.ppu.mask, nes.ppu.mask
+        ));
+        ui.code(format!(
+          " Y: {:02X} ({:03})    NMI: {:04X}",
+          nes.cpu.y,
+          nes.cpu.y,
+          nes.safe_cpu_read16(NMI_POINTER)
+        ));
+        ui.code(format!(
+          "SP: {:02X} ({:03})   ADDR: {:04X}",
+          nes.cpu.s, nes.cpu.s, nes.ppu.vram_addr
+        ));
+        ui.code(disassembled_output.join("\n"));
+      });
 
     // It's not obvious at all but this checks to see if any UI has focus, and
     // if it does, returns `Some(...)`.
