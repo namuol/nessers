@@ -1,4 +1,4 @@
-use crate::nes::Nes;
+use crate::{disassemble::disassemble, nes::Nes};
 
 use egui::{ClippedMesh, Context, TexturesDelta};
 use egui_memory_editor::{option_data::MemoryEditorOptions, MemoryEditor};
@@ -23,7 +23,7 @@ pub(crate) struct Framework {
 /// Example application state. A real application will need a lot more state than this.
 struct Gui {
   bus_open: bool,
-  memory_editor: MemoryEditor,
+  bus_editor: MemoryEditor,
   search_string: String,
   search_pattern: Option<Vec<u8>>,
 }
@@ -129,13 +129,13 @@ impl Gui {
     let mut opts = MemoryEditorOptions::default();
     opts.is_options_collapsed = true;
     opts.show_ascii = false;
-    let memory_editor = MemoryEditor::new()
+    let bus_editor = MemoryEditor::new()
       .with_window_title("Bus editor")
       .with_options(opts)
       .with_address_range("All", 0..0xFFFF);
     Self {
       bus_open: false,
-      memory_editor,
+      bus_editor,
       search_string: String::new(),
       search_pattern: None,
     }
@@ -216,7 +216,7 @@ impl Gui {
         );
       }
 
-      self.memory_editor.draw_editor_contents(
+      self.bus_editor.draw_editor_contents(
         ui,
         // &mut self.bus_open,
         nes,
@@ -246,6 +246,34 @@ impl Gui {
           None => None,
         },
       )
+    });
+
+    egui::Window::new("Debugger").show(ctx, |ui| {
+      let disassembled = disassemble(nes, nes.cpu.pc, 128);
+      let mut disassembled_output: Vec<String> = vec![];
+      let mut pc_idx: i32 = 0;
+      let mut idx: i32 = 0;
+      for o in disassembled {
+        let current = nes.cpu.pc == o.addr;
+        if current {
+          pc_idx = idx;
+        }
+        disassembled_output.push(format!(
+          "{} ${:04X}: {} {}",
+          if current { ">" } else { " " },
+          o.addr,
+          o.instruction_name,
+          o.params
+        ));
+        idx += 1;
+      }
+      let start = (pc_idx - 8).max(0).min(disassembled_output.len() as i32) as usize;
+      let end = ((start as i32) + 32)
+        .max(0)
+        .min(disassembled_output.len() as i32) as usize;
+      let disassembled_output = &disassembled_output[start..end];
+      ui.label(format!("PC: {:04X}", nes.cpu.pc));
+      ui.code(disassembled_output.join("\n"));
     });
 
     // It's not obvious at all but this checks to see if any UI has focus, and
