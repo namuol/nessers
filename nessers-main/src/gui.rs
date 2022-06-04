@@ -1,4 +1,4 @@
-use crate::{disassemble::disassemble, nes::Nes};
+use crate::{cpu6502::NMI_POINTER, disassemble::disassemble, nes::Nes};
 
 use egui::{ClippedMesh, Context, TexturesDelta};
 use egui_memory_editor::{option_data::MemoryEditorOptions, MemoryEditor};
@@ -283,7 +283,28 @@ impl Gui {
           .max(0)
           .min(disassembled_output.len() as i32) as usize;
         let disassembled_output = &disassembled_output[start..end];
-        ui.label(format!("PC: {:04X}", nes.cpu.pc));
+        ui.code(format!(
+          "PC: {:04X}        PPU: {:02X} {:08b}",
+          nes.cpu.pc, nes.ppu.status, nes.ppu.status
+        ));
+        ui.code(format!(
+          " A: {:02X} ({:03})   CTRL: {:02X} {:08b}",
+          nes.cpu.a, nes.cpu.a, nes.ppu.control, nes.ppu.control
+        ));
+        ui.code(format!(
+          " X: {:02X} ({:03})   MASK: {:02X} {:08b}",
+          nes.cpu.x, nes.cpu.x, nes.ppu.mask, nes.ppu.mask
+        ));
+        ui.code(format!(
+          " Y: {:02X} ({:03})    NMI: {:04X}",
+          nes.cpu.y,
+          nes.cpu.y,
+          nes.safe_cpu_read16(NMI_POINTER)
+        ));
+        ui.code(format!(
+          "SP: {:02X} ({:03})   ADDR: {:04X}",
+          nes.cpu.s, nes.cpu.s, nes.ppu.vram_addr
+        ));
         ui.code(disassembled_output.join("\n"));
       });
 
