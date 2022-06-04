@@ -33,7 +33,10 @@ use ChrBankMode::*;
 impl M004 {
   pub fn new(num_prg_banks: usize) -> Self {
     M004 {
-      num_prg_banks,
+      // We have 8k-byte bank sizes but our cart implementation assumes 16k-byte
+      // bank sizes, so we multiply the bank count provided by the cart by 2
+      // here:
+      num_prg_banks: num_prg_banks * 2,
       selected_register: None,
       registers: [0b0000_0000; 8],
       ram: [0x00; 8 * 1024],
@@ -139,7 +142,6 @@ impl Mapper for M004 {
       (0x8000..=0x9FFE, false) => {
         // Select bank register to write to on next odd write:
         self.selected_register = Some(0b0000_0111 & data);
-        println!("selected register {}", self.selected_register.unwrap());
 
         self.prg_bank_mode = if (0b0100_0000 & data) == 0 {
           _8000_Swap_C000_Fixed
