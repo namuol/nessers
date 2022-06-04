@@ -734,6 +734,14 @@ impl Ppu {
     }
 
     self.cycle += 1;
+
+    if (self.mask.render_background() || self.mask.render_sprites())
+      && self.cycle == 260
+      && self.scanline < 240
+    {
+      cart.mapper.scanline_complete();
+    }
+
     if self.cycle >= 341 {
       self.cycle = 0;
       self.scanline += 1;
