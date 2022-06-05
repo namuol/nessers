@@ -50,6 +50,12 @@ impl Cart {
     let format_version = (data[7] & 0b00001100) >> 2;
     println!("iNES format version: {}", format_version);
 
+    let flags_6 = data[6];
+    let mapper_code_lo = flags_6 & 0xF0;
+    let mapper_code_hi = data[7] & 0xF0;
+    let mapper_code = mapper_code_hi | (mapper_code_lo >> 4);
+    println!("Cart mapper code: {:03}", mapper_code);
+
     // if format_version != 1 {
     //   return Err("iNES 1.0 format is the only supported format");
     // }
@@ -62,7 +68,6 @@ impl Cart {
     let num_chr_banks = data[5] as usize;
     let chr_size = num_chr_banks * 8 * 1024;
 
-    let flags_6 = data[6];
     let hw_mirroring = if flags_6 & FLAG_MIRRORING != 0 {
       Mirroring::Vertical
     } else {
@@ -71,8 +76,6 @@ impl Cart {
 
     let has_ram = flags_6 & FLAG_HAS_RAM != 0;
     let has_trainer = flags_6 & FLAG_HAS_TRAINER != 0;
-    let mapper_code_lo = flags_6 & 0xF0;
-    let mapper_code_hi = data[7] & 0xF0;
 
     let prg_start = if has_trainer {
       HEADER_SIZE + 512
@@ -82,11 +85,13 @@ impl Cart {
     let chr_start = prg_start + prg_size;
 
     if chr_size > 0 && data.len() < chr_start + chr_size {
-      return Err("File is too small to contain ROM data");
+      println!(
+        "Warning: File is too small to contain reported CHR data. Expected minimum of {} bytes but file is {} bytes.",
+        chr_start + chr_size,
+        data.len()
+      );
     }
 
-    let mapper_code = mapper_code_hi | (mapper_code_lo >> 4);
-    println!("Cart mapper code: {:03}", mapper_code);
     let mapper: Box<dyn Mapper> = match mapper_code {
       000 => Box::new(M000::new(num_prg_banks)),
       001 => Box::new(M001::new(num_prg_banks)),
@@ -103,7 +108,7 @@ impl Cart {
       mapper_code,
       mapper,
       chr: if chr_size > 0 {
-        data[chr_start..chr_start + chr_size].to_vec()
+        data[chr_start..(chr_start + chr_size).min(data.len())].to_vec()
       } else {
         vec![0x00; 1024 * 8]
       },
