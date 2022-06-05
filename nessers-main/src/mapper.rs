@@ -6,6 +6,7 @@ pub mod m000;
 pub mod m001;
 pub mod m002;
 pub mod m003;
+pub mod m004;
 
 pub enum MappedRead {
   Data(u8),
@@ -47,6 +48,31 @@ pub trait Mapper {
   }
 
   fn reset(&mut self) {
+    // Default does nothing
+  }
+
+  /// This method will be called by the emulator to notify the mapper that a
+  /// scanline has been completed, allowing it to do handle that however it
+  /// chooses.
+  ///
+  /// Ordinarily a mapper (e.g. 004 aka MMC3) needs to _detect_ when a scanline
+  /// is complete by observing the activity on the PPU bus.
+  ///
+  /// This PPU bus observing trick is pretty complicated to do correctly (and a
+  /// testament of the cleverness of the designers of MMC3), so for now we're
+  /// cheating with this hack.
+  ///
+  /// Most mappers do not need to override this method.
+  fn scanline_complete(&mut self) {
+    // Default does nothing
+  }
+
+  fn irq_active(&mut self) -> bool {
+    // Default does nothing
+    false
+  }
+
+  fn irq_clear(&mut self) {
     // Default does nothing
   }
 }

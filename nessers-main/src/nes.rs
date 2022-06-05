@@ -113,6 +113,13 @@ impl Nes {
       self.cpu = *cpu;
     }
 
+    if self.cart.mapper.irq_active() {
+      self.cart.mapper.irq_clear();
+      let cpu = &mut self.cpu.clone();
+      cpu.sig_irq(self);
+      self.cpu = *cpu;
+    }
+
     self.tick += 1;
   }
 

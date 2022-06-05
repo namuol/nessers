@@ -1,7 +1,8 @@
 use std::fs;
 
 use crate::mapper::{
-  m000::M000, m001::M001, m002::M002, m003::M003, MappedRead::*, MappedWrite::*, Mapper, MXXX,
+  m000::M000, m001::M001, m002::M002, m003::M003, m004::M004, MappedRead::*, MappedWrite::*,
+  Mapper, MXXX,
 };
 
 const HEADER_START: [u8; 4] = [
@@ -85,11 +86,13 @@ impl Cart {
     }
 
     let mapper_code = mapper_code_hi | (mapper_code_lo >> 4);
+    println!("Cart mapper code: {:03}", mapper_code);
     let mapper: Box<dyn Mapper> = match mapper_code {
       000 => Box::new(M000::new(num_prg_banks)),
       001 => Box::new(M001::new(num_prg_banks)),
       002 => Box::new(M002::new(num_prg_banks)),
       003 => Box::new(M003::new(num_prg_banks)),
+      004 => Box::new(M004::new(num_prg_banks)),
       n => Box::new(MXXX::new(n)),
     };
 
@@ -115,14 +118,14 @@ impl Cart {
 
   pub fn safe_cpu_read(&self, addr: u16) -> Option<u8> {
     match self.mapper.safe_cpu_read(addr) {
-      RAddr(mapped_addr) => Some(self.prg[mapped_addr as usize]),
+      RAddr(mapped_addr) => Some(self.prg[(mapped_addr % self.prg.len()) as usize]),
       Data(data) => Some(data),
       RSkip => None,
     }
   }
   pub fn cpu_read(&mut self, addr: u16) -> Option<u8> {
     match self.mapper.cpu_read(addr) {
-      RAddr(mapped_addr) => Some(self.prg[mapped_addr as usize]),
+      RAddr(mapped_addr) => Some(self.prg[(mapped_addr % self.prg.len()) as usize]),
       Data(data) => Some(data),
       RSkip => None,
     }
@@ -130,7 +133,8 @@ impl Cart {
   pub fn cpu_write(&mut self, addr: u16, data: u8) -> Option<()> {
     match self.mapper.cpu_write(addr, data) {
       WAddr(mapped_addr) => {
-        self.prg[mapped_addr as usize] = data;
+        let len = self.prg.len();
+        self.prg[(mapped_addr % len) as usize] = data;
         Some(())
       }
       Wrote => Some(()),
@@ -140,7 +144,7 @@ impl Cart {
 
   pub fn ppu_read(&mut self, addr: u16) -> Option<u8> {
     match self.mapper.ppu_read(addr) {
-      RAddr(mapped_addr) => Some(self.chr[mapped_addr as usize]),
+      RAddr(mapped_addr) => Some(self.chr[(mapped_addr % self.chr.len()) as usize]),
       Data(data) => Some(data),
       RSkip => None,
     }
@@ -148,7 +152,8 @@ impl Cart {
   pub fn ppu_write(&mut self, addr: u16, data: u8) -> Option<()> {
     match self.mapper.ppu_write(addr, data) {
       WAddr(mapped_addr) => {
-        self.chr[mapped_addr as usize] = data;
+        let len = self.chr.len();
+        self.chr[(mapped_addr % len) as usize] = data;
         Some(())
       }
       Wrote => Some(()),
