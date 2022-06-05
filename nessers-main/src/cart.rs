@@ -1,8 +1,8 @@
 use std::fs;
 
 use crate::mapper::{
-  m000::M000, m001::M001, m002::M002, m003::M003, m004::M004, MappedRead::*, MappedWrite::*,
-  Mapper, MXXX,
+  m000::M000, m001::M001, m002::M002, m003::M003, m004::M004, m009::M009, MappedRead::*,
+  MappedWrite::*, Mapper, MXXX,
 };
 
 const HEADER_START: [u8; 4] = [
@@ -98,6 +98,7 @@ impl Cart {
       002 => Box::new(M002::new(num_prg_banks)),
       003 => Box::new(M003::new(num_prg_banks)),
       004 => Box::new(M004::new(num_prg_banks)),
+      009 => Box::new(M009::new(num_prg_banks)),
       n => Box::new(MXXX::new(n)),
     };
 

@@ -7,6 +7,7 @@ pub mod m001;
 pub mod m002;
 pub mod m003;
 pub mod m004;
+pub mod m009;
 
 pub enum MappedRead {
   Data(u8),
