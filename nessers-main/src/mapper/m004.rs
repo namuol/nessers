@@ -96,16 +96,16 @@ impl M004 {
         _ => panic!("Expected bank 0-7 but got {}", num),
       },
       _4x1K_2x2K => match num {
-        1 => (self.registers[2] as usize) * 1024,
-        2 => (self.registers[3] as usize) * 1024,
-        3 => (self.registers[4] as usize) * 1024,
-        4 => (self.registers[5] as usize) * 1024,
+        0 => (self.registers[2] as usize) * 1024,
+        1 => (self.registers[3] as usize) * 1024,
+        2 => (self.registers[4] as usize) * 1024,
+        3 => (self.registers[5] as usize) * 1024,
 
-        5 => (((self.registers[0] & 0b1111_1110) as usize) + 0) * 1024,
-        6 => (((self.registers[0] & 0b1111_1110) as usize) + 1) * 1024,
+        4 => (((self.registers[0] & 0b1111_1110) as usize) + 0) * 1024,
+        5 => (((self.registers[0] & 0b1111_1110) as usize) + 1) * 1024,
 
-        7 => (((self.registers[1] & 0b1111_1110) as usize) + 0) * 1024,
-        8 => (((self.registers[1] & 0b1111_1110) as usize) + 1) * 1024,
+        6 => (((self.registers[1] & 0b1111_1110) as usize) + 0) * 1024,
+        7 => (((self.registers[1] & 0b1111_1110) as usize) + 1) * 1024,
         _ => panic!("Expected bank 0-7 but got {}", num),
       },
     }
