@@ -8,6 +8,7 @@ pub mod m002;
 pub mod m003;
 pub mod m004;
 pub mod m009;
+pub mod m069;
 
 pub enum MappedRead {
   Data(u8),
@@ -49,6 +50,10 @@ pub trait Mapper {
   }
 
   fn reset(&mut self) {
+    // Default does nothing
+  }
+
+  fn clock(&mut self, _tick: u64) {
     // Default does nothing
   }
 

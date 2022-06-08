@@ -39,7 +39,7 @@ use crate::nes::Nes;
 const USAGE: &'static str = "
 Usage:
 
-nessers <rom> [<breakpoints>]
+nessers <rom> [<breakpoints>...]
 ";
 
 const WIDTH: u32 = 1280;
@@ -80,6 +80,8 @@ fn main() -> Result<(), Error> {
     .and_then(|d| d.deserialize())
     .unwrap_or_else(|e| e.exit());
 
+  let mut breakpoints_enabled = true;
+
   let mut nes = match Nes::new(
     &args.arg_rom,
     "nessers-main/src/test_fixtures/ntscpalette.pal",
@@ -87,6 +89,13 @@ fn main() -> Result<(), Error> {
     Ok(n) => n,
     Err(msg) => panic!("{}", msg),
   };
+
+  nes.breakpoints = args
+    .arg_breakpoints
+    .iter()
+    .map(|s| u16::from_str_radix(s, 16).unwrap())
+    .collect();
+
   nes.reset();
   nes.step();
 
@@ -128,6 +137,8 @@ fn main() -> Result<(), Error> {
         if input.key_pressed(VirtualKeyCode::Space) {
           nes_debugger.playing = !nes_debugger.playing;
           if nes_debugger.playing {
+            // Ensure we step past any breakpoints we may have been hanging on:
+            nes.step();
             audio_device.stream.play().unwrap();
           } else {
             audio_device.stream.pause().unwrap();
@@ -161,6 +172,11 @@ fn main() -> Result<(), Error> {
           println!("enable: {}", nes.apu.pulse[0].enable);
           println!("samp: {}", nes.apu.pulse[0].sample);
           println!("clock: {}", nes.apu.global_clock);
+        }
+
+        if input.key_pressed(VirtualKeyCode::B) {
+          breakpoints_enabled = !breakpoints_enabled;
+          println!("Breakpoints {}", if breakpoints_enabled {"enabled"} else {"disabled"});
         }
       }
 
@@ -205,7 +221,12 @@ fn main() -> Result<(), Error> {
               break;
             }
 
-            nes.clock();
+            // Break on breakpoints:
+            if nes.clock() && breakpoints_enabled {
+              nes_debugger.playing = false;
+              audio_device.stream.pause().unwrap();
+              break;
+            }
 
             if nes.apu.sample_ready {
               audio_buffer.push(nes.apu.sample());

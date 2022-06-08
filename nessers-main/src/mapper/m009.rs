@@ -1,5 +1,7 @@
 #![allow(unused_comparisons)]
 
+use serde::__private::ser::FlatMapSerializeMap;
+
 use super::*;
 
 #[derive(Copy, Clone)]

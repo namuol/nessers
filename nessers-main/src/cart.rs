@@ -1,8 +1,8 @@
 use std::fs;
 
 use crate::mapper::{
-  m000::M000, m001::M001, m002::M002, m003::M003, m004::M004, m009::M009, MappedRead::*,
-  MappedWrite::*, Mapper, MXXX,
+  m000::M000, m001::M001, m002::M002, m003::M003, m004::M004, m009::M009, m069::M069,
+  MappedRead::*, MappedWrite::*, Mapper, MXXX,
 };
 
 const HEADER_START: [u8; 4] = [
@@ -32,9 +32,9 @@ pub enum Mirroring {
 
 pub const HEADER_SIZE: usize = 16;
 
-pub const FLAG_MIRRORING: u8 = 0b00000001;
-pub const FLAG_HAS_RAM: u8 = 0b00000010;
-pub const FLAG_HAS_TRAINER: u8 = 0b00000100;
+pub const FLAG_MIRRORING: u8 = 0b0000_0001;
+pub const FLAG_HAS_RAM: u8 = 0b000_00010;
+pub const FLAG_HAS_TRAINER: u8 = 0b0000_0100;
 
 impl Cart {
   pub fn new(data: &Vec<u8>) -> Result<Cart, &'static str> {
@@ -99,6 +99,7 @@ impl Cart {
       003 => Box::new(M003::new(num_prg_banks)),
       004 => Box::new(M004::new(num_prg_banks)),
       009 => Box::new(M009::new(num_prg_banks)),
+      069 => Box::new(M069::new(num_prg_banks, num_chr_banks)),
       n => Box::new(MXXX::new(n)),
     };
 
