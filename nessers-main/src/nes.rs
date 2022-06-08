@@ -73,9 +73,12 @@ impl Nes {
     })
   }
 
-  pub fn clock(&mut self) {
+  pub fn clock(&mut self) -> bool {
+    // TODO: Add break conditions for PPU, APU, and Mapper:
     self.ppu.clock(&mut self.cart);
     self.apu.clock(&mut self.cart);
+    self.cart.mapper.clock(self.tick);
+
     if self.tick % 3 == 0 {
       if self.dma_active {
         if self.dma_dummy {
@@ -120,7 +123,9 @@ impl Nes {
       self.cpu = *cpu;
     }
 
-    self.tick += 1;
+    self.tick = self.tick.wrapping_add(1);
+
+    self.breakpoints.contains(&self.cpu.pc)
   }
 
   pub fn step(&mut self) {

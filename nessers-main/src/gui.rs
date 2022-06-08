@@ -302,8 +302,17 @@ impl Gui {
           nes.safe_cpu_read16(NMI_POINTER)
         ));
         ui.code(format!(
-          "SP: {:02X} ({:03})   ADDR: {:04X}",
+          "SP: {:02X} ({:03}) VRAM ADDR: {:04X}",
           nes.cpu.s, nes.cpu.s, nes.ppu.vram_addr
+        ));
+        ui.code(format!(
+          "           MIRRORING: {}",
+          match nes.cart.mirroring() {
+            crate::cart::Mirroring::Horizontal => "Horizontal",
+            crate::cart::Mirroring::Vertical => "Vertical",
+            crate::cart::Mirroring::OneScreenLo => "OneScreenLo",
+            crate::cart::Mirroring::OneScreenHi => "OneScreenHi",
+          }
         ));
         ui.code(disassembled_output.join("\n"));
       });
