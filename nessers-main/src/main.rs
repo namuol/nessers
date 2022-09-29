@@ -145,33 +145,22 @@ fn main() -> Result<(), Error> {
           }
         }
 
-        if input.key_pressed(VirtualKeyCode::F) {
+        if input.key_pressed_os(VirtualKeyCode::F) {
           nes_debugger.playing = false;
           audio_device.stream.pause().unwrap();
           nes.frame();
         }
 
-        if input.key_pressed(VirtualKeyCode::Period) {
+        if input.key_pressed_os(VirtualKeyCode::Period) {
           nes_debugger.playing = false;
           audio_device.stream.pause().unwrap();
           nes.clock();
         }
 
-        if input.key_pressed(VirtualKeyCode::Slash) {
+        if input.key_pressed_os(VirtualKeyCode::Slash) {
           nes_debugger.playing = false;
           audio_device.stream.pause().unwrap();
           nes.step();
-        }
-
-        if input.key_pressed(VirtualKeyCode::S) {
-          println!("---");
-          println!("freq: {}", nes.apu.pulse[0].osc.frequency);
-          println!("amp: {}", nes.apu.pulse[0].osc.amplitude);
-          println!("duty: {}", nes.apu.pulse[0].osc.duty_cycle);
-          println!("harm: {}", nes.apu.pulse[0].osc.harmonics);
-          println!("enable: {}", nes.apu.pulse[0].enable);
-          println!("samp: {}", nes.apu.pulse[0].sample);
-          println!("clock: {}", nes.apu.global_clock);
         }
 
         if input.key_pressed(VirtualKeyCode::B) {
