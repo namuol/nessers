@@ -83,7 +83,13 @@ fn main() -> Result<(), Error> {
 
   let mut breakpoints_enabled = true;
 
+  // I could probably abstract some of this...
+  let (sample_tx, sample_rx) = mpsc::channel();
+  let audio_device = AudioDevice::init(sample_rx);
+  audio_device.stream.pause().unwrap();
+
   let mut nes = match Nes::new(
+    audio_device.sample_rate as f32,
     &args.arg_rom,
     "nessers-main/src/test_fixtures/ntscpalette.pal",
   ) {
@@ -100,10 +106,6 @@ fn main() -> Result<(), Error> {
   nes.reset();
   nes.step();
 
-  // I could probably abstract some of this...
-  let (sample_tx, sample_rx) = mpsc::channel();
-  let audio_device = AudioDevice::init(sample_rx);
-  audio_device.stream.pause().unwrap();
   let min_audio_buffer_size = audio_device.min_buffer_size;
   let max_audio_buffer_size = audio_device.max_buffer_size;
 

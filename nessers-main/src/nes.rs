@@ -36,7 +36,7 @@ pub struct Nes {
 }
 
 impl Nes {
-  pub fn new(cart_filename: &str, palette_filename: &str) -> Result<Nes, &'static str> {
+  pub fn new(system_sample_rate: f32, cart_filename: &str, palette_filename: &str) -> Result<Nes, &'static str> {
     let cpu = Cpu::new();
 
     // 2K internal RAM, mirrored to 8K
@@ -47,7 +47,7 @@ impl Nes {
     let ppu = Ppu::new(Palette::from_file(palette_filename)?);
     let ppu_registers_mirror = Mirror::new(0x2000, 8 * 1024);
 
-    let apu = Apu::new();
+    let apu = Apu::new(system_sample_rate);
 
     let cart = Cart::from_file(cart_filename)?;
 
