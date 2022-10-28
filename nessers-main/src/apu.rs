@@ -10,12 +10,7 @@ use crate::cart::Cart;
 const NTSC_PPU_CLOCK_FREQ: f32 = (21.477272 / 4.0) * 1_000_000.0;
 const NTSC_CPU_CLOCK_FREQ: f32 = (21.477272 / 12.0) * 1_000_000.0;
 
-// 44.1 kHz - this doesn't need to be hard-coded but I'm doing it this way for
-// simplicity, for now.
-const SYSTEM_SAMPLE_RATE: f32 = 44.1 * 1_000.0;
-
 const TIME_PER_PPU_CLOCK: f32 = 1.0 / NTSC_PPU_CLOCK_FREQ;
-const TIME_PER_SAMPLE: f32 = 1.0 / SYSTEM_SAMPLE_RATE;
 
 /// The audio processing unit.
 ///
@@ -27,6 +22,7 @@ pub struct Apu {
   pub triangle: Triangle,
   pub noise: Noise,
   pub dmc: Dmc,
+
   // Store this separately since we use it to update the dmc; should probably do
   // the same thing for others (esp. noise which has the same problem):
   dmc_sequencer: Sequencer,
@@ -38,11 +34,15 @@ pub struct Apu {
   five_step_mode: bool,
   frame_interrupt_flag: bool,
   frame_counter_reset_timer: u8,
-  pub global_clock: f64,
+  global_clock: f64,
+
+  system_sample_rate: f32,
+  time_per_sample: f32,
 }
 
 impl Apu {
-  pub fn new() -> Self {
+  pub fn new(system_sample_rate: f32) -> Self {
+    let time_per_sample = 1.0 / system_sample_rate;
     Apu {
       pulse: [Pulse::new(), Pulse::new()],
       triangle: Triangle::new(),
@@ -51,7 +51,7 @@ impl Apu {
       dmc_sequencer: Sequencer::new(),
       sample_ready: false,
 
-      time_until_next_sample: TIME_PER_SAMPLE,
+      time_until_next_sample: time_per_sample,
       sample_clock: 0.0,
 
       clock_counter: 0,
@@ -61,6 +61,9 @@ impl Apu {
       frame_counter_reset_timer: 0,
 
       global_clock: 0.0,
+
+      system_sample_rate,
+      time_per_sample,
     }
   }
 
@@ -387,9 +390,9 @@ impl Apu {
       self.time_until_next_sample -= TIME_PER_PPU_CLOCK;
       if self.time_until_next_sample < 0.0 {
         // Simple sin wave for now:
-        self.sample_clock = (self.sample_clock + 1.0) % SYSTEM_SAMPLE_RATE;
+        self.sample_clock = (self.sample_clock + 1.0) % self.system_sample_rate;
         self.sample_ready = true;
-        self.time_until_next_sample += TIME_PER_SAMPLE;
+        self.time_until_next_sample += self.time_per_sample;
       }
     }
 

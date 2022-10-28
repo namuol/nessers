@@ -8,6 +8,7 @@ pub struct AudioDevice {
   pub stream: cpal::Stream,
   pub min_buffer_size: usize,
   pub max_buffer_size: usize,
+  pub sample_rate: u32,
 }
 
 impl AudioDevice {
@@ -16,13 +17,8 @@ impl AudioDevice {
     let device = host.default_output_device().unwrap();
     println!("Output device: {}", device.name().unwrap());
 
-    // Force 44.1kHz
-    let config = device
-      .supported_output_configs()
-      .unwrap()
-      .next()
-      .unwrap()
-      .with_sample_rate(cpal::SampleRate(44100));
+    let config = device.default_output_config().unwrap();
+    let sample_rate = config.sample_rate().0;
 
     let buffer_size = config.buffer_size().clone();
     println!("Default output config: {:?}", config);
@@ -37,6 +33,7 @@ impl AudioDevice {
       stream,
       min_buffer_size: min_buffer_size(&buffer_size),
       max_buffer_size: max_buffer_size(&buffer_size),
+      sample_rate,
     }
   }
 }
