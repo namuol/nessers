@@ -10,6 +10,7 @@ use log::error;
 use pixels::{Error, Pixels, SurfaceTexture};
 use ppu::{SCREEN_H, SCREEN_W};
 use serde::Deserialize;
+use std::time::{Duration, Instant};
 use winit::dpi::LogicalSize;
 use winit::event::{Event, VirtualKeyCode};
 use winit::event_loop::{ControlFlow, EventLoop};
@@ -109,7 +110,7 @@ fn main() -> Result<(), Error> {
   let mut audio_buffer: Vec<f32> = vec![];
   let mut nes_debugger = NesDebugger::new(WIDTH, HEIGHT);
   let mut egui_has_focus = false;
-  let mut odd_frame = false;
+  let mut last_frame = Instant::now();
   // Handle input and drive UI & screen rendering:
   event_loop.run(move |event, _, control_flow| {
     if input.update(&event) {
@@ -165,7 +166,14 @@ fn main() -> Result<(), Error> {
 
         if input.key_pressed(VirtualKeyCode::B) {
           breakpoints_enabled = !breakpoints_enabled;
-          println!("Breakpoints {}", if breakpoints_enabled {"enabled"} else {"disabled"});
+          println!(
+            "Breakpoints {}",
+            if breakpoints_enabled {
+              "enabled"
+            } else {
+              "disabled"
+            }
+          );
         }
       }
 
@@ -199,10 +207,10 @@ fn main() -> Result<(), Error> {
       }
       // Draw the current frame
       Event::RedrawRequested(_) => {
-        // HACK: My display is 120hz; what I really should be doing is checking
-        // a time delta to determine whether to let the emulator run a frame
-        // here...
-        if nes_debugger.playing && odd_frame {
+        // Only render if we're playing and enough time has passed to run at
+        // ~60hz; prevents from running too fast when on a display with > 60hz
+        if nes_debugger.playing && last_frame.elapsed() > Duration::from_millis(16) {
+          last_frame = Instant::now();
           // Run our clock until a frame is ready, gathering samples as we go...
           loop {
             // Prevent buffer overrun; this could result in a dropped frame:
@@ -228,8 +236,6 @@ fn main() -> Result<(), Error> {
             }
           }
         }
-
-        odd_frame = !odd_frame;
 
         let mut last_sample_idx = 0;
         // Send samples until there's nothing to receive:
